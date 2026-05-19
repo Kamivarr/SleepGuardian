@@ -18,8 +18,7 @@ interface ApiService {
 }
 
 object RetrofitClient {
-    // Emulator loopback address. Update to production URL before release.
-    private const val BASE_URL = "http://10.0.2.2:8000"
+    private const val BASE_URL = "https://sleepguardian-api.onrender.com"
 
     val apiService: ApiService by lazy {
         Retrofit.Builder()
