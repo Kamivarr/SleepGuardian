@@ -50,7 +50,7 @@ W głównym katalogu projektu uruchom:
 
 ```bash
 docker compose up --build -d
-
+```
 * Serwer API będzie dostępny pod adresem: `http://localhost:8000`
 * Interaktywna dokumentacja (Swagger UI) znajduje się pod adresem: `http://localhost:8000/docs`
 
