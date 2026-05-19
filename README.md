@@ -27,7 +27,7 @@ Projekt realizowany jest w architekturze **monorepo**:
 ├── docs/                  # Dokumentacja techniczna projektu
 ├── docker-compose.yml     # Konfiguracja środowiska kontenerowego (Baza + API)
 └── .github/               # Konfiguracja potoków CI/CD (GitHub Actions)
-
+```
 ## ⚙️ Wymagania systemowe
 
 ### Frontend
