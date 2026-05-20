@@ -16,13 +16,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.ExitToApp
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FlashlightOn
+import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,6 +32,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
@@ -306,7 +308,7 @@ fun RegisterScreen(navController: NavController) {
 
 /**
  * Main dashboard view for configuring sleep schedules and selecting the hardware penalty mode.
- * Synchronizes session data with the backend before activating hardware penalties.
+ * Integrates gamification status metrics and dynamic UI grids.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -318,7 +320,10 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
     var wakeTime by remember { mutableStateOf("06:00") }
     var isLoading by remember { mutableStateOf(false) }
 
-    // Struktura danych dla "Fancy" kart
+    // Gamification state initialization (to be integrated with backend endpoint)
+    var currentStreak by remember { mutableIntStateOf(12) }
+    var heartsRemaining by remember { mutableIntStateOf(3) }
+
     data class ModeDef(val name: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val desc: String)
     val rigourModes = listOf(
         ModeDef("Narastająca Kurtyna", Icons.Default.VisibilityOff, "Zasłania ekran"),
@@ -364,7 +369,60 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
             ) {
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Karta harmonogramu (bez zmian)
+                // Gamification Status Bar
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color(0xFFFFF3E0),
+                        modifier = Modifier.weight(1f).height(48.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.LocalFireDepartment, contentDescription = "Streak", tint = Color(0xFFFF9800))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "$currentStreak Dni",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFE65100)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(16.dp))
+
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color(0xFFFFEBEE),
+                        modifier = Modifier.weight(1f).height(48.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Favorite, contentDescription = "Serca", tint = Color(0xFFE53935))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "$heartsRemaining",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFC62828)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Sleep Schedule Card
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(24.dp),
@@ -396,7 +454,7 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // FANCY UI: Siatka kart wyboru rygoru
+                // Rigour Method Selection Grid
                 Text(
                     "Metoda Rygoru",
                     style = MaterialTheme.typography.titleMedium,
@@ -406,7 +464,6 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                 )
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Tworzymy siatkę 2x2 z kart
                 Column(modifier = Modifier.fillMaxWidth()) {
                     for (i in rigourModes.indices step 2) {
                         Row(

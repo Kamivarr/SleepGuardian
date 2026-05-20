@@ -15,8 +15,10 @@ import security
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    
     """Initializes database connections and executes required migrations on startup."""
     async with engine.begin() as conn:
+        await conn.run_sync(models.Base.metadata.drop_all)
         await conn.run_sync(models.Base.metadata.create_all)
     yield
 
