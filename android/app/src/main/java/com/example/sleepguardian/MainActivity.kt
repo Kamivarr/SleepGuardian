@@ -8,6 +8,7 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.selection.selectable
@@ -21,6 +22,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -72,173 +74,242 @@ fun SleepGuardianApp() {
 
 /**
  * Provides the UI for user authentication with a minimalist aesthetic.
+ * Pre-fills credentials if saved by the TokenManager and overlays a centered loading indicator during requests.
  */
 @Composable
 fun LoginScreen(navController: NavController, tokenManager: TokenManager) {
-    var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
+    // Load previously saved credentials directly into states
+    var email by remember { mutableStateOf(tokenManager.getSavedEmail()) }
+    var password by remember { mutableStateOf(tokenManager.getSavedPassword()) }
     var statusMessage by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .systemBarsPadding()
-            .padding(32.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Icon(
-            imageVector = Icons.Default.Bedtime,
-            contentDescription = "Logo",
-            modifier = Modifier.size(64.dp),
-            tint = MaterialTheme.colorScheme.primary
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = "SleepGuardian",
-            style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary
-        )
-        Spacer(modifier = Modifier.height(48.dp))
-
-        OutlinedTextField(
-            value = email,
-            onValueChange = { email = it },
-            label = { Text("E-mail") },
-            leadingIcon = { Icon(Icons.Default.Email, contentDescription = "Email Icon") },
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            singleLine = true
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        OutlinedTextField(
-            value = password,
-            onValueChange = { password = it },
-            label = { Text("Hasło") },
-            visualTransformation = PasswordVisualTransformation(),
-            leadingIcon = { Icon(Icons.Default.Lock, contentDescription = "Password Icon") },
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            singleLine = true
-        )
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        Button(
-            onClick = {
-                coroutineScope.launch {
-                    try {
-                        val request = LoginRequest(email, password)
-                        val response = RetrofitClient.apiService.login(request)
-                        tokenManager.saveToken(response.token)
-                        navController.navigate("dashboard") {
-                            popUpTo("login") { inclusive = true }
-                        }
-                    } catch (e: Exception) {
-                        statusMessage = "Błąd logowania. Sprawdź dane."
-                    }
-                }
-            },
-            modifier = Modifier.fillMaxWidth().height(56.dp),
-            shape = RoundedCornerShape(16.dp)
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .systemBarsPadding()
+                .padding(32.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("Zaloguj się", style = MaterialTheme.typography.titleMedium)
+            Icon(
+                imageVector = Icons.Default.Bedtime,
+                contentDescription = "Logo",
+                modifier = Modifier.size(64.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "SleepGuardian",
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.height(48.dp))
+
+            OutlinedTextField(
+                value = email,
+                onValueChange = { email = it },
+                label = { Text("E-mail") },
+                leadingIcon = { Icon(Icons.Default.Email, contentDescription = "Email Icon") },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                singleLine = true,
+                enabled = !isLoading
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text("Hasło") },
+                visualTransformation = PasswordVisualTransformation(),
+                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = "Password Icon") },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                singleLine = true,
+                enabled = !isLoading
+            )
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Button(
+                onClick = {
+                    if (email.isBlank() || password.isBlank()) {
+                        statusMessage = "Wypełnij wszystkie pola."
+                        return@Button
+                    }
+
+                    isLoading = true
+                    statusMessage = ""
+
+                    coroutineScope.launch {
+                        try {
+                            val request = LoginRequest(email, password)
+                            val response = RetrofitClient.apiService.login(request)
+
+                            // Save both token and credentials for retention
+                            tokenManager.saveToken(response.token)
+                            tokenManager.saveCredentials(email, password)
+
+                            navController.navigate("dashboard") {
+                                popUpTo("login") { inclusive = true }
+                            }
+                        } catch (e: Exception) {
+                            statusMessage = "Błąd logowania. Sprawdź dane."
+                        } finally {
+                            isLoading = false
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(16.dp),
+                enabled = !isLoading
+            ) {
+                Text("Zaloguj się", style = MaterialTheme.typography.titleMedium)
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            TextButton(onClick = { navController.navigate("register") }, enabled = !isLoading) {
+                Text("Nie masz konta? Zarejestruj się", color = MaterialTheme.colorScheme.secondary)
+            }
+
+            if (statusMessage.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(text = statusMessage, color = MaterialTheme.colorScheme.error)
+            }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        TextButton(onClick = { navController.navigate("register") }) {
-            Text("Nie masz konta? Zarejestruj się", color = MaterialTheme.colorScheme.secondary)
-        }
-
-        if (statusMessage.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(text = statusMessage, color = MaterialTheme.colorScheme.error)
+        // Minimalist full-screen centered loading indicator overlay
+        if (isLoading) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.12f)),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(48.dp),
+                    strokeWidth = 4.dp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
         }
     }
 }
 
 /**
- * Provides the UI for creating a new user account.
+ * Provides the UI for creating a new user account with centered loader integration.
  */
 @Composable
 fun RegisterScreen(navController: NavController) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var statusMessage by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .systemBarsPadding()
-            .padding(32.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = "Dołącz do nas",
-            style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(modifier = Modifier.height(48.dp))
-
-        OutlinedTextField(
-            value = email,
-            onValueChange = { email = it },
-            label = { Text("E-mail") },
-            leadingIcon = { Icon(Icons.Default.Email, contentDescription = "Email Icon") },
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            singleLine = true
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        OutlinedTextField(
-            value = password,
-            onValueChange = { password = it },
-            label = { Text("Hasło (min. 8 znaków)") },
-            visualTransformation = PasswordVisualTransformation(),
-            leadingIcon = { Icon(Icons.Default.Lock, contentDescription = "Password Icon") },
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            singleLine = true
-        )
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        Button(
-            onClick = {
-                coroutineScope.launch {
-                    try {
-                        val request = LoginRequest(email, password)
-                        val response = RetrofitClient.apiService.register(request)
-                        statusMessage = response.message
-                    } catch (e: Exception) {
-                        statusMessage = "Błąd: Ten e-mail może być już zajęty."
-                    }
-                }
-            },
-            modifier = Modifier.fillMaxWidth().height(56.dp),
-            shape = RoundedCornerShape(16.dp)
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .systemBarsPadding()
+                .padding(32.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("Utwórz konto", style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = "Dołącz do nas",
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(48.dp))
+
+            OutlinedTextField(
+                value = email,
+                onValueChange = { email = it },
+                label = { Text("E-mail") },
+                leadingIcon = { Icon(Icons.Default.Email, contentDescription = "Email Icon") },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                singleLine = true,
+                enabled = !isLoading
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text("Hasło (min. 8 znaków)") },
+                visualTransformation = PasswordVisualTransformation(),
+                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = "Password Icon") },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                singleLine = true,
+                enabled = !isLoading
+            )
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Button(
+                onClick = {
+                    if (email.isBlank() || password.isBlank()) {
+                        statusMessage = "Wypełnij wszystkie pola."
+                        return@Button
+                    }
+
+                    isLoading = true
+                    statusMessage = ""
+
+                    coroutineScope.launch {
+                        try {
+                            val request = LoginRequest(email, password)
+                            val response = RetrofitClient.apiService.register(request)
+                            statusMessage = response.message
+                        } catch (e: Exception) {
+                            statusMessage = "Błąd: Ten e-mail może być już zajęty."
+                        } finally {
+                            isLoading = false
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(16.dp),
+                enabled = !isLoading
+            ) {
+                Text("Utwórz konto", style = MaterialTheme.typography.titleMedium)
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            TextButton(onClick = { navController.popBackStack() }, enabled = !isLoading) {
+                Text("Wróć do logowania", color = MaterialTheme.colorScheme.secondary)
+            }
+
+            if (statusMessage.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(text = statusMessage, color = MaterialTheme.colorScheme.primary)
+            }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        TextButton(onClick = { navController.popBackStack() }) {
-            Text("Wróć do logowania", color = MaterialTheme.colorScheme.secondary)
-        }
-
-        if (statusMessage.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(text = statusMessage, color = MaterialTheme.colorScheme.primary)
+        if (isLoading) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.12f)),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(48.dp),
+                    strokeWidth = 4.dp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
         }
     }
 }
@@ -310,14 +381,13 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
         ) {
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Soft Minimalist Card for Schedule
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                 ),
-                elevation = CardDefaults.cardElevation(0.dp) // Płaski design
+                elevation = CardDefaults.cardElevation(0.dp)
             ) {
                 Column(modifier = Modifier.padding(24.dp)) {
                     Text(
@@ -364,7 +434,6 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Soft Minimalist Card for Modes
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
