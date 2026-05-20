@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.hardware.camera2.CameraManager
 import android.os.Build
+import android.os.CountDownTimer
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
@@ -18,7 +19,7 @@ import kotlinx.coroutines.launch
 
 /**
  * Foreground service managing the stroboscopic flashlight penalty.
- * Controls hardware LED and reports rule violations to the backend API upon screen activation.
+ * Introduces a 120-second grace period before hardware activation and backend reporting.
  */
 class LighthouseService : Service() {
 
@@ -28,6 +29,9 @@ class LighthouseService : Service() {
     private var isFlashing = false
     private var flashThread: Thread? = null
     private var screenStateReceiver: BroadcastReceiver? = null
+    private var graceTimer: CountDownTimer? = null
+
+    private val gracePeriodMs: Long = 120000
 
     companion object {
         const val ACTION_STOP_LIGHTHOUSE = "com.example.sleepguardian.STOP_LIGHTHOUSE"
@@ -48,7 +52,7 @@ class LighthouseService : Service() {
         initializeCamera()
         initializeForegroundService()
         registerScreenStateReceiver()
-        startFlashing()
+        startGraceTimer()
     }
 
     private fun initializeCamera() {
@@ -97,11 +101,11 @@ class LighthouseService : Service() {
         screenStateReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 when (intent?.action) {
-                    Intent.ACTION_SCREEN_ON -> {
-                        reportPenalty("Latarnia Morska")
-                        startFlashing()
+                    Intent.ACTION_SCREEN_ON -> startGraceTimer()
+                    Intent.ACTION_SCREEN_OFF -> {
+                        cancelGraceTimer()
+                        stopFlashing()
                     }
-                    Intent.ACTION_SCREEN_OFF -> stopFlashing()
                 }
             }
         }
@@ -110,6 +114,23 @@ class LighthouseService : Service() {
             addAction(Intent.ACTION_SCREEN_OFF)
         }
         registerReceiver(screenStateReceiver, filter)
+    }
+
+    private fun startGraceTimer() {
+        if (isFlashing) return
+        graceTimer?.cancel()
+        graceTimer = object : CountDownTimer(gracePeriodMs, 1000) {
+            override fun onTick(millisUntilFinished: Long) {}
+            override fun onFinish() {
+                reportPenalty("Latarnia Morska")
+                startFlashing()
+            }
+        }.start()
+    }
+
+    private fun cancelGraceTimer() {
+        graceTimer?.cancel()
+        graceTimer = null
     }
 
     private fun startFlashing() {
@@ -169,6 +190,7 @@ class LighthouseService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        cancelGraceTimer()
         stopFlashing()
         screenStateReceiver?.let { unregisterReceiver(it) }
     }

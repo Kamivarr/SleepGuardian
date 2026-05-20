@@ -3,13 +3,16 @@ package com.example.sleepguardian
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
+import android.os.CountDownTimer
 import android.os.IBinder
 import android.view.Gravity
 import android.view.ViewGroup
@@ -24,12 +27,17 @@ import kotlinx.coroutines.launch
 
 /**
  * Foreground service responsible for rendering the system-level overlay (Curtain).
- * Reports penalty to the backend if the user manually overrides the restriction.
+ * Implements a 120-second grace period upon screen activation before displaying the restriction.
  */
 class CurtainService : Service() {
 
     private lateinit var windowManager: WindowManager
     private var overlayView: LinearLayout? = null
+    private var screenStateReceiver: BroadcastReceiver? = null
+    private var graceTimer: CountDownTimer? = null
+
+    private val gracePeriodMs: Long = 120000
+    private var isOverlayShowing = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -37,7 +45,8 @@ class CurtainService : Service() {
         super.onCreate()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         initializeForegroundService()
-        renderOverlay()
+        registerScreenStateReceiver()
+        startGraceTimer()
     }
 
     private fun initializeForegroundService() {
@@ -61,7 +70,45 @@ class CurtainService : Service() {
         startForeground(1, notification)
     }
 
+    private fun registerScreenStateReceiver() {
+        screenStateReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    Intent.ACTION_SCREEN_ON -> startGraceTimer()
+                    Intent.ACTION_SCREEN_OFF -> {
+                        cancelGraceTimer()
+                        removeOverlay()
+                    }
+                }
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
+        }
+        registerReceiver(screenStateReceiver, filter)
+    }
+
+    private fun startGraceTimer() {
+        if (isOverlayShowing) return
+        graceTimer?.cancel()
+        graceTimer = object : CountDownTimer(gracePeriodMs, 1000) {
+            override fun onTick(millisUntilFinished: Long) {}
+            override fun onFinish() {
+                renderOverlay()
+            }
+        }.start()
+    }
+
+    private fun cancelGraceTimer() {
+        graceTimer?.cancel()
+        graceTimer = null
+    }
+
     private fun renderOverlay() {
+        if (isOverlayShowing) return
+        isOverlayShowing = true
+
         val layoutParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -77,7 +124,7 @@ class CurtainService : Service() {
         overlayView = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setBackgroundColor(Color.parseColor("#F2080808")) // 95% opacity dark surface
+            setBackgroundColor(Color.parseColor("#F2080808"))
             setPadding(64, 64, 64, 64)
             this.layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -95,7 +142,7 @@ class CurtainService : Service() {
 
         val subtitleText = TextView(this).apply {
             text = "Twój ekran został zablokowany, aby chronić Twój sen.\nOdkładając telefon, dbasz o swój streak."
-            setTextColor(Color.parseColor("#B3FFFFFF")) // 70% opacity white
+            setTextColor(Color.parseColor("#B3FFFFFF"))
             textSize = 16f
             typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
             gravity = Gravity.CENTER
@@ -124,6 +171,15 @@ class CurtainService : Service() {
         windowManager.addView(overlayView, layoutParams)
     }
 
+    private fun removeOverlay() {
+        if (!isOverlayShowing) return
+        isOverlayShowing = false
+        overlayView?.let {
+            windowManager.removeView(it)
+            overlayView = null
+        }
+    }
+
     private fun reportPenalty(penaltyType: String) {
         val tokenManager = TokenManager(applicationContext)
         val token = tokenManager.getToken()
@@ -143,9 +199,8 @@ class CurtainService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        overlayView?.let {
-            windowManager.removeView(it)
-            overlayView = null
-        }
+        cancelGraceTimer()
+        removeOverlay()
+        screenStateReceiver?.let { unregisterReceiver(it) }
     }
 }

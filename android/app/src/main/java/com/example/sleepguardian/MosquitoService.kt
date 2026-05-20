@@ -12,6 +12,7 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.os.Build
+import android.os.CountDownTimer
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
@@ -21,7 +22,7 @@ import kotlin.math.sin
 
 /**
  * Foreground service managing the high-frequency audio penalty.
- * Reports rule violations to the backend API when the user turns the screen on.
+ * Evaluates screen state changes and applies a 120-second countdown penalty buffer.
  */
 class MosquitoService : Service() {
 
@@ -29,11 +30,13 @@ class MosquitoService : Service() {
     private var isPlaying = false
     private var audioThread: Thread? = null
     private var screenStateReceiver: BroadcastReceiver? = null
+    private var graceTimer: CountDownTimer? = null
 
     private val sampleRate = 44100
     private val frequency = 9000.0
     private val durationInSeconds = 1
     private val volumeFactor = 0.1
+    private val gracePeriodMs: Long = 120000
 
     companion object {
         const val ACTION_STOP_MOSQUITO = "com.example.sleepguardian.STOP_MOSQUITO"
@@ -53,7 +56,7 @@ class MosquitoService : Service() {
         super.onCreate()
         initializeForegroundService()
         registerScreenStateReceiver()
-        startMosquitoSound()
+        startGraceTimer()
     }
 
     private fun initializeForegroundService() {
@@ -90,11 +93,11 @@ class MosquitoService : Service() {
         screenStateReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 when (intent?.action) {
-                    Intent.ACTION_SCREEN_ON -> {
-                        reportPenalty("Upierdliwy Komar")
-                        startMosquitoSound()
+                    Intent.ACTION_SCREEN_ON -> startGraceTimer()
+                    Intent.ACTION_SCREEN_OFF -> {
+                        cancelGraceTimer()
+                        stopMosquitoSound()
                     }
-                    Intent.ACTION_SCREEN_OFF -> stopMosquitoSound()
                 }
             }
         }
@@ -103,6 +106,23 @@ class MosquitoService : Service() {
             addAction(Intent.ACTION_SCREEN_OFF)
         }
         registerReceiver(screenStateReceiver, filter)
+    }
+
+    private fun startGraceTimer() {
+        if (isPlaying) return
+        graceTimer?.cancel()
+        graceTimer = object : CountDownTimer(gracePeriodMs, 1000) {
+            override fun onTick(millisUntilFinished: Long) {}
+            override fun onFinish() {
+                reportPenalty("Upierdliwy Komar")
+                startMosquitoSound()
+            }
+        }.start()
+    }
+
+    private fun cancelGraceTimer() {
+        graceTimer?.cancel()
+        graceTimer = null
     }
 
     private fun startMosquitoSound() {
@@ -184,6 +204,7 @@ class MosquitoService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        cancelGraceTimer()
         stopMosquitoSound()
         screenStateReceiver?.let { unregisterReceiver(it) }
     }
