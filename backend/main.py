@@ -15,16 +15,15 @@ import security
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    
     """Initializes database connections and executes required migrations on startup."""
     async with engine.begin() as conn:
-        await conn.run_sync(models.Base.metadata.drop_all)
         await conn.run_sync(models.Base.metadata.create_all)
     yield
 
 app = FastAPI(title="SleepGuardian API", version="1.0.0", lifespan=lifespan)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login")
+
 
 async def get_current_user_email(token: str = Depends(oauth2_scheme)) -> str:
     """Validates the JWT token and extracts the user subject (email)."""
@@ -120,7 +119,6 @@ async def end_sleep_session(session_id: int, current_user: str = Depends(get_cur
 @app.post("/api/sleep/penalty/{session_id}", status_code=201)
 async def log_penalty_event(session_id: int, request: LogPenaltyRequest, current_user: str = Depends(get_current_user_email), db: AsyncSession = Depends(get_db)):
     """Logs a discipline violation, decrements health, and punishes the user if hearts run out."""
-
     result_user = await db.execute(select(models.User).where(models.User.email == current_user))
     user = result_user.scalars().first()
     
@@ -174,5 +172,7 @@ async def get_sleep_statistics(current_user: str = Depends(get_current_user_emai
     return {
         "total_sessions": total_sessions,
         "total_penalties": total_penalties,
-        "penalty_breakdown": breakdown
+        "penalty_breakdown": breakdown,
+        "current_streak": user.current_streak,
+        "hearts": user.hearts
     }

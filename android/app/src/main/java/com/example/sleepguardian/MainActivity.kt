@@ -62,8 +62,7 @@ class MainActivity : ComponentActivity() {
 }
 
 /**
- * Root composable function acting as the main entry point for the application's UI.
- * Orchestrates navigation between Login, Registration, and Dashboard screens.
+ * Root composable function orchestrating navigation between application screens.
  */
 @Composable
 fun SleepGuardianApp() {
@@ -81,8 +80,7 @@ fun SleepGuardianApp() {
 }
 
 /**
- * Provides the UI for user authentication with a minimalist aesthetic.
- * Pre-fills credentials if saved by the TokenManager and overlays a centered loading indicator during requests.
+ * Provides the UI for user authentication with credential retention and network state overlay.
  */
 @Composable
 fun LoginScreen(navController: NavController, tokenManager: TokenManager) {
@@ -202,7 +200,7 @@ fun LoginScreen(navController: NavController, tokenManager: TokenManager) {
 }
 
 /**
- * Provides the UI for creating a new user account with centered loader integration.
+ * Provides the UI for registering a new user account.
  */
 @Composable
 fun RegisterScreen(navController: NavController) {
@@ -307,8 +305,8 @@ fun RegisterScreen(navController: NavController) {
 }
 
 /**
- * Main dashboard view for configuring sleep schedules and selecting the hardware penalty mode.
- * Integrates gamification status metrics and dynamic UI grids.
+ * Main dashboard view for configuring sleep schedules and executing penalties.
+ * Dynamically fetches gamification telemetry upon entering the composition.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -320,9 +318,8 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
     var wakeTime by remember { mutableStateOf("06:00") }
     var isLoading by remember { mutableStateOf(false) }
 
-    // Gamification state initialization (to be integrated with backend endpoint)
-    var currentStreak by remember { mutableIntStateOf(12) }
-    var heartsRemaining by remember { mutableIntStateOf(3) }
+    var currentStreak by remember { mutableIntStateOf(0) }
+    var heartsRemaining by remember { mutableIntStateOf(0) }
 
     data class ModeDef(val name: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val desc: String)
     val rigourModes = listOf(
@@ -332,6 +329,20 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
         ModeDef("Latarnia Morska", Icons.Default.FlashlightOn, "Stroboskop LED")
     )
     var selectedMode by remember { mutableStateOf(rigourModes[0].name) }
+
+    // Synchronizes UI state with backend gamification metrics on load
+    LaunchedEffect(Unit) {
+        try {
+            val token = tokenManager.getToken()
+            if (token != null) {
+                val stats = RetrofitClient.apiService.getStats("Bearer $token")
+                currentStreak = stats.current_streak
+                heartsRemaining = stats.hearts
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
 
     fun showTimePicker(onTimeSelected: (String) -> Unit) {
         val calendar = Calendar.getInstance()
@@ -369,7 +380,6 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
             ) {
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Gamification Status Bar
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
@@ -420,9 +430,8 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                     }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-                // Sleep Schedule Card
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(24.dp),
@@ -452,9 +461,8 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                     }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-                // Rigour Method Selection Grid
                 Text(
                     "Metoda Rygoru",
                     style = MaterialTheme.typography.titleMedium,

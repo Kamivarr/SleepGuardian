@@ -12,10 +12,13 @@ import android.hardware.camera2.CameraManager
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * Foreground service managing the stroboscopic flashlight penalty.
- * Controls hardware LED based on screen states and integrates a notification action for manual override.
+ * Controls hardware LED and reports rule violations to the backend API upon screen activation.
  */
 class LighthouseService : Service() {
 
@@ -45,7 +48,7 @@ class LighthouseService : Service() {
         initializeCamera()
         initializeForegroundService()
         registerScreenStateReceiver()
-        startFlashing() // Active by default since the screen is currently ON
+        startFlashing()
     }
 
     private fun initializeCamera() {
@@ -94,7 +97,10 @@ class LighthouseService : Service() {
         screenStateReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 when (intent?.action) {
-                    Intent.ACTION_SCREEN_ON -> startFlashing()
+                    Intent.ACTION_SCREEN_ON -> {
+                        reportPenalty("Latarnia Morska")
+                        startFlashing()
+                    }
                     Intent.ACTION_SCREEN_OFF -> stopFlashing()
                 }
             }
@@ -140,6 +146,23 @@ class LighthouseService : Service() {
                 cameraManager.setTorchMode(it, false)
             } catch (e: Exception) {
                 e.printStackTrace()
+            }
+        }
+    }
+
+    private fun reportPenalty(penaltyType: String) {
+        val tokenManager = TokenManager(applicationContext)
+        val token = tokenManager.getToken()
+        val sessionId = tokenManager.getSessionId()
+
+        if (token != null && sessionId != -1) {
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val request = LogPenaltyRequest(penaltyType)
+                    RetrofitClient.apiService.logPenalty("Bearer $token", sessionId, request)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
             }
         }
     }

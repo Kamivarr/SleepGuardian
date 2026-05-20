@@ -4,6 +4,7 @@ import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
+import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Path
@@ -18,13 +19,20 @@ data class StartSessionResponse(val session_id: Int, val message: String)
 data class LogPenaltyRequest(val penalty_type: String)
 data class GenericResponse(val message: String)
 
+data class StatsResponse(
+    val total_sessions: Int,
+    val total_penalties: Int,
+    val penalty_breakdown: Map<String, Int>,
+    val current_streak: Int,
+    val hearts: Int
+)
+
 interface ApiService {
     @POST("/api/auth/login")
     suspend fun login(@Body request: LoginRequest): LoginResponse
 
     @POST("/api/auth/register")
     suspend fun register(@Body request: LoginRequest): RegisterResponse
-
 
     @POST("/api/sleep/start")
     suspend fun startSession(
@@ -44,6 +52,11 @@ interface ApiService {
         @Path("session_id") sessionId: Int,
         @Body request: LogPenaltyRequest
     ): GenericResponse
+
+    @GET("/api/sleep/stats")
+    suspend fun getStats(
+        @Header("Authorization") token: String
+    ): StatsResponse
 }
 
 object RetrofitClient {

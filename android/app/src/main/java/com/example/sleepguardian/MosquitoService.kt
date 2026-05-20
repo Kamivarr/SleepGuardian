@@ -14,11 +14,14 @@ import android.media.AudioTrack
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlin.math.sin
 
 /**
  * Foreground service managing the high-frequency audio penalty.
- * Toggles audio playback based on screen hardware states and provides a notification action to terminate.
+ * Reports rule violations to the backend API when the user turns the screen on.
  */
 class MosquitoService : Service() {
 
@@ -50,7 +53,7 @@ class MosquitoService : Service() {
         super.onCreate()
         initializeForegroundService()
         registerScreenStateReceiver()
-        startMosquitoSound() // Active by default since the screen is currently ON
+        startMosquitoSound()
     }
 
     private fun initializeForegroundService() {
@@ -64,7 +67,6 @@ class MosquitoService : Service() {
             getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
         }
 
-        // Intent for the notification action button to terminate the session
         val stopIntent = Intent(this, MosquitoService::class.java).apply {
             action = ACTION_STOP_MOSQUITO
         }
@@ -88,7 +90,10 @@ class MosquitoService : Service() {
         screenStateReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 when (intent?.action) {
-                    Intent.ACTION_SCREEN_ON -> startMosquitoSound()
+                    Intent.ACTION_SCREEN_ON -> {
+                        reportPenalty("Upierdliwy Komar")
+                        startMosquitoSound()
+                    }
                     Intent.ACTION_SCREEN_OFF -> stopMosquitoSound()
                 }
             }
@@ -158,6 +163,23 @@ class MosquitoService : Service() {
             }
         }
         audioTrack = null
+    }
+
+    private fun reportPenalty(penaltyType: String) {
+        val tokenManager = TokenManager(applicationContext)
+        val token = tokenManager.getToken()
+        val sessionId = tokenManager.getSessionId()
+
+        if (token != null && sessionId != -1) {
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val request = LogPenaltyRequest(penaltyType)
+                    RetrofitClient.apiService.logPenalty("Bearer $token", sessionId, request)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
     }
 
     override fun onDestroy() {
