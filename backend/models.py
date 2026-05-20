@@ -11,6 +11,10 @@ class User(Base):
     password_hash = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    current_streak = Column(Integer, default=0, nullable=False) 
+    longest_streak = Column(Integer, default=0, nullable=False)  
+    hearts = Column(Integer, default=3, nullable=False)          
+
     sessions = relationship("SleepSession", back_populates="user", cascade="all, delete-orphan")
 
 

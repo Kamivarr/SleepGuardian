@@ -117,14 +117,30 @@ async def end_sleep_session(session_id: int, current_user: str = Depends(get_cur
 
 @app.post("/api/sleep/penalty/{session_id}", status_code=201)
 async def log_penalty_event(session_id: int, request: LogPenaltyRequest, current_user: str = Depends(get_current_user_email), db: AsyncSession = Depends(get_db)):
-    """Logs a single discipline violation trigger during a session."""
-    new_log = models.PenaltyLog(
-        session_id=session_id,
-        penalty_type=request.penalty_type
-    )
+    """Logs a discipline violation, decrements health, and punishes the user if hearts run out."""
+
+    result_user = await db.execute(select(models.User).where(models.User.email == current_user))
+    user = result_user.scalars().first()
+    
+    new_log = models.PenaltyLog(session_id=session_id, penalty_type=request.penalty_type)
     db.add(new_log)
+
+    penalty_message = "Kara zarejestrowana. Uważaj na swoje serca!"
+    
+    if user.hearts > 0:
+        user.hearts -= 1
+        
+    if user.hearts == 0 and user.current_streak > 0:
+        user.current_streak = 0
+        penalty_message = "Straciłeś wszystkie serca! Twój Streak zrównał się z ziemią. Zawiodłeś."
+    
     await db.commit()
-    return {"message": "Penalty event logged successfully."}
+    
+    return {
+        "message": penalty_message,
+        "hearts_remaining": user.hearts,
+        "streak_lost": user.hearts == 0
+    }
 
 
 @app.get("/api/sleep/stats")
