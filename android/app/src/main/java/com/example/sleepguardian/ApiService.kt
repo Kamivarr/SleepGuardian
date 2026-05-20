@@ -27,6 +27,15 @@ data class StatsResponse(
     val hearts: Int
 )
 
+data class SleepSessionItem(
+    val id: Int,
+    val start_time: String?,
+    val end_time: String?,
+    val target_sleep_time: String,
+    val target_wake_time: String
+)
+data class HistoryResponse(val history: List<SleepSessionItem>)
+
 interface ApiService {
     @POST("/api/auth/login")
     suspend fun login(@Body request: LoginRequest): LoginResponse
@@ -57,6 +66,11 @@ interface ApiService {
     suspend fun getStats(
         @Header("Authorization") token: String
     ): StatsResponse
+
+    @GET("/api/sleep/history")
+    suspend fun getHistory(
+        @Header("Authorization") token: String
+    ): HistoryResponse
 }
 
 object RetrofitClient {

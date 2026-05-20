@@ -8,22 +8,32 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FlashlightOn
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -76,6 +86,7 @@ fun SleepGuardianApp() {
         composable("login") { LoginScreen(navController, tokenManager) }
         composable("register") { RegisterScreen(navController) }
         composable("dashboard") { DashboardScreen(navController, tokenManager) }
+        composable("history") { HistoryScreen(navController, tokenManager) }
     }
 }
 
@@ -102,7 +113,7 @@ fun LoginScreen(navController: NavController, tokenManager: TokenManager) {
             Icon(
                 imageVector = Icons.Default.Bedtime,
                 contentDescription = "Logo",
-                modifier = Modifier.size(64.dp),
+                modifier = Modifier.size(80.dp),
                 tint = MaterialTheme.colorScheme.primary
             )
             Spacer(modifier = Modifier.height(16.dp))
@@ -305,8 +316,87 @@ fun RegisterScreen(navController: NavController) {
 }
 
 /**
+ * Screen dedicated to fetching and displaying historical sleep sessions.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun HistoryScreen(navController: NavController, tokenManager: TokenManager) {
+    var historyList by remember { mutableStateOf<List<SleepSessionItem>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+    var errorMessage by remember { mutableStateOf("") }
+    val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        coroutineScope.launch {
+            try {
+                val token = tokenManager.getToken()
+                if (token != null) {
+                    val response = RetrofitClient.apiService.getHistory("Bearer $token")
+                    historyList = response.history
+                }
+            } catch (e: Exception) {
+                errorMessage = "Nie udało się pobrać historii."
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = { Text("Historia Sesji", fontWeight = FontWeight.Medium) },
+                navigationIcon = {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Wstecz")
+                    }
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = MaterialTheme.colorScheme.background)
+            )
+        }
+    ) { innerPadding ->
+        Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+            if (isLoading) {
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+            } else if (errorMessage.isNotEmpty()) {
+                Text(text = errorMessage, color = MaterialTheme.colorScheme.error, modifier = Modifier.align(Alignment.Center))
+            } else if (historyList.isEmpty()) {
+                Text(text = "Brak zarejestrowanych sesji snu.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.align(Alignment.Center))
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                    contentPadding = PaddingValues(vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(historyList) { session ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                            elevation = CardDefaults.cardElevation(0.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                val dateStr = session.start_time?.take(10) ?: "Nieznana data"
+                                Text(text = "Sesja z dnia: $dateStr", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(text = "Cel snu: ${session.target_sleep_time} - ${session.target_wake_time}", style = MaterialTheme.typography.bodyMedium)
+
+                                val statusText = if (session.end_time != null) "Zakończona pomyślnie" else "Niezakończona"
+                                val statusColor = if (session.end_time != null) Color(0xFF4CAF50) else Color(0xFFFF9800)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(text = "Status: $statusText", style = MaterialTheme.typography.bodySmall, color = statusColor, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
  * Main dashboard view for configuring sleep schedules and executing penalties.
- * Dynamically fetches gamification telemetry upon entering the composition.
+ * Manages State-Driven UI for Active Session vs Configuration Mode.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -321,6 +411,8 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
     var currentStreak by remember { mutableIntStateOf(0) }
     var heartsRemaining by remember { mutableIntStateOf(0) }
 
+    var isSessionActive by remember { mutableStateOf(tokenManager.getSessionId() != -1) }
+
     data class ModeDef(val name: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val desc: String)
     val rigourModes = listOf(
         ModeDef("Narastająca Kurtyna", Icons.Default.VisibilityOff, "Zasłania ekran"),
@@ -330,18 +422,23 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
     )
     var selectedMode by remember { mutableStateOf(rigourModes[0].name) }
 
-    // Synchronizes UI state with backend gamification metrics on load
-    LaunchedEffect(Unit) {
-        try {
-            val token = tokenManager.getToken()
-            if (token != null) {
-                val stats = RetrofitClient.apiService.getStats("Bearer $token")
-                currentStreak = stats.current_streak
-                heartsRemaining = stats.hearts
+    fun refreshStats() {
+        coroutineScope.launch {
+            try {
+                val token = tokenManager.getToken()
+                if (token != null) {
+                    val stats = RetrofitClient.apiService.getStats("Bearer $token")
+                    currentStreak = stats.current_streak
+                    heartsRemaining = stats.hearts
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
         }
+    }
+
+    LaunchedEffect(Unit) {
+        refreshStats()
     }
 
     fun showTimePicker(onTimeSelected: (String) -> Unit) {
@@ -359,15 +456,24 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
         Scaffold(
             topBar = {
                 CenterAlignedTopAppBar(
-                    title = { Text("Profil Snu", fontWeight = FontWeight.Medium) },
-                    actions = {
-                        IconButton(
-                            onClick = {
-                                tokenManager.clearToken()
-                                navController.navigate("login") { popUpTo(0) { inclusive = true } }
+                    title = { Text(if (isSessionActive) "Trwa Sesja Snu" else "Profil Snu", fontWeight = FontWeight.Medium) },
+                    navigationIcon = {
+                        if (!isSessionActive) {
+                            IconButton(onClick = { navController.navigate("history") }) {
+                                Icon(Icons.Default.History, contentDescription = "Historia Sesji", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                        ) {
-                            Icon(imageVector = Icons.Default.ExitToApp, contentDescription = "Wyloguj", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    },
+                    actions = {
+                        if (!isSessionActive) {
+                            IconButton(
+                                onClick = {
+                                    tokenManager.clearToken()
+                                    navController.navigate("login") { popUpTo(0) { inclusive = true } }
+                                }
+                            ) {
+                                Icon(imageVector = Icons.Default.ExitToApp, contentDescription = "Wyloguj", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
                     },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = MaterialTheme.colorScheme.background)
@@ -375,7 +481,10 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
             }
         ) { innerPadding ->
             Column(
-                modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 24.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(horizontal = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Spacer(modifier = Modifier.height(8.dp))
@@ -430,102 +539,123 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                     }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                    elevation = CardDefaults.cardElevation(0.dp)
+                AnimatedVisibility(
+                    visible = !isSessionActive,
+                    enter = fadeIn() + slideInVertically(),
+                    exit = fadeOut() + slideOutVertically()
                 ) {
-                    Column(modifier = Modifier.padding(24.dp)) {
-                        Text("Harmonogram", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                        Spacer(modifier = Modifier.height(20.dp))
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Bedtime, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Text("Sennność: $sleepTime", style = MaterialTheme.typography.bodyLarge)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(24.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                            elevation = CardDefaults.cardElevation(0.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(24.dp)) {
+                                Text("Harmonogram", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                                Spacer(modifier = Modifier.height(20.dp))
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Bedtime, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Text("Sennność: $sleepTime", style = MaterialTheme.typography.bodyLarge)
+                                    }
+                                    TextButton(onClick = { showTimePicker { sleepTime = it } }) { Text("Edytuj") }
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.WbSunny, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Text("Pobudka: $wakeTime", style = MaterialTheme.typography.bodyLarge)
+                                    }
+                                    TextButton(onClick = { showTimePicker { wakeTime = it } }) { Text("Edytuj") }
+                                }
                             }
-                            TextButton(onClick = { showTimePicker { sleepTime = it } }) { Text("Edytuj") }
                         }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.WbSunny, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Text("Pobudka: $wakeTime", style = MaterialTheme.typography.bodyLarge)
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Text(
+                            "Metoda Rygoru",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.align(Alignment.Start)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            for (i in rigourModes.indices step 2) {
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    for (j in 0..1) {
+                                        if (i + j < rigourModes.size) {
+                                            val mode = rigourModes[i + j]
+                                            val isSelected = selectedMode == mode.name
+
+                                            OutlinedCard(
+                                                onClick = { selectedMode = mode.name },
+                                                modifier = Modifier.weight(1f).aspectRatio(1.1f),
+                                                shape = RoundedCornerShape(20.dp),
+                                                colors = CardDefaults.outlinedCardColors(
+                                                    containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+                                                ),
+                                                border = CardDefaults.outlinedCardBorder(
+                                                    (if (isSelected) 2.dp else 1.dp) != 0.dp
+                                                ).copy(brush = androidx.compose.ui.graphics.SolidColor(if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant))
+                                            ) {
+                                                Column(
+                                                    modifier = Modifier.fillMaxSize().padding(12.dp),
+                                                    verticalArrangement = Arrangement.Center,
+                                                    horizontalAlignment = Alignment.CenterHorizontally
+                                                ) {
+                                                    Icon(imageVector = mode.icon, contentDescription = mode.name, tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(32.dp))
+                                                    Spacer(modifier = Modifier.height(8.dp))
+                                                    Text(text = mode.name, style = MaterialTheme.typography.bodyMedium, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal, textAlign = TextAlign.Center, color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface)
+                                                    Spacer(modifier = Modifier.height(4.dp))
+                                                    Text(text = mode.desc, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(12.dp))
                             }
-                            TextButton(onClick = { showTimePicker { wakeTime = it } }) { Text("Edytuj") }
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    "Metoda Rygoru",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.align(Alignment.Start)
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    for (i in rigourModes.indices step 2) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            for (j in 0..1) {
-                                if (i + j < rigourModes.size) {
-                                    val mode = rigourModes[i + j]
-                                    val isSelected = selectedMode == mode.name
-
-                                    OutlinedCard(
-                                        onClick = { selectedMode = mode.name },
-                                        modifier = Modifier.weight(1f).aspectRatio(1.1f),
-                                        shape = RoundedCornerShape(20.dp),
-                                        colors = CardDefaults.outlinedCardColors(
-                                            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
-                                        ),
-                                        border = CardDefaults.outlinedCardBorder(
-                                            (if (isSelected) 2.dp else 1.dp) != 0.dp
-                                        ).copy(brush = androidx.compose.ui.graphics.SolidColor(if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant))
-                                    ) {
-                                        Column(
-                                            modifier = Modifier.fillMaxSize().padding(12.dp),
-                                            verticalArrangement = Arrangement.Center,
-                                            horizontalAlignment = Alignment.CenterHorizontally
-                                        ) {
-                                            Icon(
-                                                imageVector = mode.icon,
-                                                contentDescription = mode.name,
-                                                tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.size(32.dp)
-                                            )
-                                            Spacer(modifier = Modifier.height(8.dp))
-                                            Text(
-                                                text = mode.name,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                                textAlign = TextAlign.Center,
-                                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                                            )
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Text(
-                                                text = mode.desc,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                textAlign = TextAlign.Center
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(12.dp))
+                AnimatedVisibility(
+                    visible = isSessionActive,
+                    enter = fadeIn() + slideInVertically { height -> height / 2 },
+                    exit = fadeOut()
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(top = 64.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = "Active",
+                            modifier = Modifier.size(120.dp),
+                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Text(
+                            text = "Ochrona Snu Aktywna",
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Odłóż telefon. Rygor: $selectedMode",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
 
@@ -533,56 +663,78 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
 
                 Button(
                     onClick = {
-                        isLoading = true
-                        coroutineScope.launch {
-                            try {
-                                val token = "Bearer ${tokenManager.getToken()}"
-                                val request = StartSessionRequest(sleepTime, wakeTime)
-                                val response = RetrofitClient.apiService.startSession(token, request)
-
-                                tokenManager.saveSessionId(response.session_id)
-
-                                when (selectedMode) {
-                                    "Narastająca Kurtyna" -> {
-                                        if (!Settings.canDrawOverlays(context)) {
-                                            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
-                                            context.startActivity(intent)
-                                        } else {
-                                            ContextCompat.startForegroundService(context, Intent(context, CurtainService::class.java))
-                                        }
+                        if (isSessionActive) {
+                            isLoading = true
+                            coroutineScope.launch {
+                                try {
+                                    val token = "Bearer ${tokenManager.getToken()}"
+                                    val sessionId = tokenManager.getSessionId()
+                                    if (sessionId != -1) {
+                                        RetrofitClient.apiService.endSession(token, sessionId)
+                                        tokenManager.saveSessionId(-1)
                                     }
-                                    "Test Kamienia" -> ContextCompat.startForegroundService(context, Intent(context, StoneTestService::class.java))
-                                    "Upierdliwy Komar" -> ContextCompat.startForegroundService(context, Intent(context, MosquitoService::class.java))
-                                    "Latarnia Morska" -> ContextCompat.startForegroundService(context, Intent(context, LighthouseService::class.java))
+
+                                    context.stopService(Intent(context, MosquitoService::class.java))
+                                    context.stopService(Intent(context, LighthouseService::class.java))
+                                    context.stopService(Intent(context, StoneTestService::class.java))
+                                    context.stopService(Intent(context, CurtainService::class.java))
+
+                                    refreshStats()
+                                    isSessionActive = false
+                                    Toast.makeText(context, "Sesja zakończona. Dzień dobry!", Toast.LENGTH_SHORT).show()
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Błąd podczas zamykania sesji.", Toast.LENGTH_SHORT).show()
+                                } finally {
+                                    isLoading = false
                                 }
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Błąd serwera. Sprawdź połączenie.", Toast.LENGTH_LONG).show()
-                            } finally {
-                                isLoading = false
+                            }
+                        } else {
+                            isLoading = true
+                            coroutineScope.launch {
+                                try {
+                                    val token = "Bearer ${tokenManager.getToken()}"
+                                    val request = StartSessionRequest(sleepTime, wakeTime)
+                                    val response = RetrofitClient.apiService.startSession(token, request)
+
+                                    tokenManager.saveSessionId(response.session_id)
+                                    isSessionActive = true
+
+                                    when (selectedMode) {
+                                        "Narastająca Kurtyna" -> {
+                                            if (!Settings.canDrawOverlays(context)) {
+                                                val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
+                                                context.startActivity(intent)
+                                            } else {
+                                                ContextCompat.startForegroundService(context, Intent(context, CurtainService::class.java))
+                                            }
+                                        }
+                                        "Test Kamienia" -> ContextCompat.startForegroundService(context, Intent(context, StoneTestService::class.java))
+                                        "Upierdliwy Komar" -> ContextCompat.startForegroundService(context, Intent(context, MosquitoService::class.java))
+                                        "Latarnia Morska" -> ContextCompat.startForegroundService(context, Intent(context, LighthouseService::class.java))
+                                    }
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Błąd serwera. Sprawdź połączenie.", Toast.LENGTH_LONG).show()
+                                } finally {
+                                    isLoading = false
+                                }
                             }
                         }
                     },
-                    modifier = Modifier.fillMaxWidth().height(64.dp),
+                    modifier = Modifier.fillMaxWidth().height(64.dp).padding(bottom = 8.dp),
                     shape = RoundedCornerShape(32.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isSessionActive) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary
+                    ),
                     enabled = !isLoading
                 ) {
-                    Text("Zaczynamy", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = if (isSessionActive) "WSTAŁEM (Zakończ)" else "Zaczynamy",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
-
-                TextButton(
-                    onClick = {
-                        context.stopService(Intent(context, MosquitoService::class.java))
-                        context.stopService(Intent(context, LighthouseService::class.java))
-                        context.stopService(Intent(context, StoneTestService::class.java))
-                        context.stopService(Intent(context, CurtainService::class.java))
-                        Toast.makeText(context, "Wszystkie kary zatrzymane.", Toast.LENGTH_SHORT).show()
-                    },
-                    modifier = Modifier.padding(bottom = 16.dp)
-                ) {
-                    Text("Awaryjne zatrzymanie kar", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
-                }
+                Spacer(modifier = Modifier.height(16.dp))
             }
         }
 

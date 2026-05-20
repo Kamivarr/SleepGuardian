@@ -176,3 +176,28 @@ async def get_sleep_statistics(current_user: str = Depends(get_current_user_emai
         "current_streak": user.current_streak,
         "hearts": user.hearts
     }
+
+@app.get("/api/sleep/history")
+async def get_sleep_history(current_user: str = Depends(get_current_user_email), db: AsyncSession = Depends(get_db)):
+    """Returns the sleep session history for the user."""
+    result_user = await db.execute(select(models.User).where(models.User.email == current_user))
+    user = result_user.scalars().first()
+
+    sessions_result = await db.execute(
+        select(models.SleepSession)
+        .where(models.SleepSession.user_id == user.id)
+        .order_by(models.SleepSession.id.desc())
+        .limit(20)
+    )
+    sessions = sessions_result.scalars().all()
+
+    history = []
+    for s in sessions:
+        history.append({
+            "id": s.id,
+            "start_time": s.start_time.isoformat() if s.start_time else None,
+            "end_time": s.end_time.isoformat() if s.end_time else None,
+            "target_sleep_time": s.target_sleep_time,
+            "target_wake_time": s.target_wake_time
+        })
+    return {"history": history}
