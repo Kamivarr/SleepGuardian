@@ -1,8 +1,12 @@
 package com.example.sleepguardian
 
 import android.app.TimePickerDialog
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.Toast
@@ -18,14 +22,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Lock
@@ -34,6 +36,7 @@ import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -53,7 +56,8 @@ import kotlinx.coroutines.launch
 import java.util.Calendar
 
 /**
- * Main application activity initializing the Compose UI toolkit and Material Design 3 theme.
+ * Main entry point of the SleepGuardian application.
+ * Initializes the Jetpack Compose environment and applies the Material Design 3 theme.
  */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -72,7 +76,8 @@ class MainActivity : ComponentActivity() {
 }
 
 /**
- * Root composable function orchestrating navigation between application screens.
+ * Core composable orchestrating the application's navigation graph.
+ * Determines the initial destination based on user authentication status.
  */
 @Composable
 fun SleepGuardianApp() {
@@ -91,7 +96,8 @@ fun SleepGuardianApp() {
 }
 
 /**
- * Provides the UI for user authentication with credential retention and network state overlay.
+ * Provides the user interface for authentication.
+ * Handles credential input, API login requests, and secure token storage upon success.
  */
 @Composable
 fun LoginScreen(navController: NavController, tokenManager: TokenManager) {
@@ -171,6 +177,7 @@ fun LoginScreen(navController: NavController, tokenManager: TokenManager) {
                             }
                         } catch (e: Exception) {
                             statusMessage = "Błąd logowania. Sprawdź dane."
+                            // TODO: Differentiate between 401 Unauthorized and network timeouts
                         } finally {
                             isLoading = false
                         }
@@ -195,6 +202,7 @@ fun LoginScreen(navController: NavController, tokenManager: TokenManager) {
             }
         }
 
+        // Blocking loading overlay during network operations
         if (isLoading) {
             Box(
                 modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.12f)),
@@ -211,7 +219,7 @@ fun LoginScreen(navController: NavController, tokenManager: TokenManager) {
 }
 
 /**
- * Provides the UI for registering a new user account.
+ * Provides the user interface for creating a new account.
  */
 @Composable
 fun RegisterScreen(navController: NavController) {
@@ -317,10 +325,13 @@ fun RegisterScreen(navController: NavController) {
 
 /**
  * Screen dedicated to fetching and displaying historical sleep sessions.
+ * Highlights sessions that were forcefully aborted due to user non-compliance.
+ * * TODO: Implement local caching for this screen to ensure offline availability of history.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryScreen(navController: NavController, tokenManager: TokenManager) {
+    val context = LocalContext.current
     var historyList by remember { mutableStateOf<List<SleepSessionItem>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf("") }
@@ -335,7 +346,7 @@ fun HistoryScreen(navController: NavController, tokenManager: TokenManager) {
                     historyList = response.history
                 }
             } catch (e: Exception) {
-                errorMessage = "Nie udało się pobrać historii."
+                errorMessage = "Nie udało się pobrać historii. Jesteś offline?"
             } finally {
                 isLoading = false
             }
@@ -381,8 +392,21 @@ fun HistoryScreen(navController: NavController, tokenManager: TokenManager) {
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(text = "Cel snu: ${session.target_sleep_time} - ${session.target_wake_time}", style = MaterialTheme.typography.bodyMedium)
 
-                                val statusText = if (session.end_time != null) "Zakończona pomyślnie" else "Niezakończona"
-                                val statusColor = if (session.end_time != null) Color(0xFF4CAF50) else Color(0xFFFF9800)
+                                // LOGIC: Evaluate Negative Session Status
+                                val prefs = context.getSharedPreferences("sleepguardian_prefs", Context.MODE_PRIVATE)
+                                val isNegative = prefs.getBoolean("negative_session_${session.id}", false)
+
+                                val statusText = when {
+                                    isNegative -> "Zakończona negatywnie (Przerwana)"
+                                    session.end_time != null -> "Zakończona pomyślnie"
+                                    else -> "Niezakończona"
+                                }
+                                val statusColor = when {
+                                    isNegative -> Color(0xFFD32F2F) // Red for penalty
+                                    session.end_time != null -> Color(0xFF4CAF50) // Green for success
+                                    else -> Color(0xFFFF9800) // Orange for pending/unknown
+                                }
+
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(text = "Status: $statusText", style = MaterialTheme.typography.bodySmall, color = statusColor, fontWeight = FontWeight.SemiBold)
                             }
@@ -395,8 +419,8 @@ fun HistoryScreen(navController: NavController, tokenManager: TokenManager) {
 }
 
 /**
- * Main dashboard view for configuring sleep schedules and executing penalties.
- * Manages State-Driven UI for Active Session vs Configuration Mode.
+ * Main dashboard view for configuring sleep schedules and executing hardware penalties.
+ * Manages State-Driven UI, offline telemetry synchronization, and background abort broadcasts.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -413,25 +437,43 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
 
     var isSessionActive by remember { mutableStateOf(tokenManager.getSessionId() != -1) }
 
+    // Definition mapping for hardware-level sleep enforcement modes
     data class ModeDef(val name: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val desc: String)
     val rigourModes = listOf(
         ModeDef("Narastająca Kurtyna", Icons.Default.VisibilityOff, "Zasłania ekran"),
         ModeDef("Test Kamienia", Icons.Default.Smartphone, "Wykrywa ruch"),
-        ModeDef("Upierdliwy Komar", Icons.Default.NotificationsActive, "Pisk 9kHz"),
+        ModeDef("Upierdliwy Komar", Icons.Default.NotificationsActive, "Dźwięk ostrzegawczy"),
         ModeDef("Latarnia Morska", Icons.Default.FlashlightOn, "Stroboskop LED")
     )
     var selectedMode by remember { mutableStateOf(rigourModes[0].name) }
 
+    /**
+     * Refreshes gamification metrics (Streak & Hearts).
+     * Automatically attempts to sync locally cached penalties to the server before fetching.
+     */
     fun refreshStats() {
         coroutineScope.launch {
+            val offlineManager = OfflineSyncManager(context)
+
+            // 1. Optimistic UI: Load cached stats immediately
+            currentStreak = offlineManager.getCachedStreak()
+            heartsRemaining = offlineManager.getCachedHearts()
+
             try {
                 val token = tokenManager.getToken()
                 if (token != null) {
+                    // 2. Sync queued offline data with the server
+                    offlineManager.syncAll(token)
+
+                    // 3. Fetch latest metrics
                     val stats = RetrofitClient.apiService.getStats("Bearer $token")
+
                     currentStreak = stats.current_streak
                     heartsRemaining = stats.hearts
+                    offlineManager.saveCachedStats(stats.current_streak, stats.hearts)
                 }
             } catch (e: Exception) {
+                // Fails silently if offline; UI retains cached states
                 e.printStackTrace()
             }
         }
@@ -439,6 +481,26 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
 
     LaunchedEffect(Unit) {
         refreshStats()
+    }
+
+    // Listens for external broadcast events triggered when background penalty services abort a session
+    DisposableEffect(Unit) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context?, intent: Intent?) {
+                if (intent?.action == "com.example.sleepguardian.SESSION_ABORTED") {
+                    isSessionActive = false
+                    refreshStats()
+                    Toast.makeText(context, "Sesja została przerwana za karę!", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+        val filter = IntentFilter("com.example.sleepguardian.SESSION_ABORTED")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        }
+        onDispose { context.unregisterReceiver(receiver) }
     }
 
     fun showTimePicker(onTimeSelected: (String) -> Unit) {
@@ -489,6 +551,7 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
             ) {
                 Spacer(modifier = Modifier.height(8.dp))
 
+                // --- GAMIFICATION STATUS BAR ---
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
@@ -541,6 +604,7 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
 
                 Spacer(modifier = Modifier.height(16.dp))
 
+                // --- CONFIGURATION MODE UI ---
                 AnimatedVisibility(
                     visible = !isSessionActive,
                     enter = fadeIn() + slideInVertically(),
@@ -587,6 +651,7 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                         )
                         Spacer(modifier = Modifier.height(16.dp))
 
+                        // Dynamic 2x2 Grid for Mode Selection
                         Column(modifier = Modifier.fillMaxWidth()) {
                             for (i in rigourModes.indices step 2) {
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -627,6 +692,7 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                     }
                 }
 
+                // --- ACTIVE SESSION UI ---
                 AnimatedVisibility(
                     visible = isSessionActive,
                     enter = fadeIn() + slideInVertically { height -> height / 2 },
@@ -661,49 +727,65 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
 
                 Spacer(modifier = Modifier.weight(1f))
 
+                // --- PRIMARY CALL TO ACTION BUTTON ---
                 Button(
                     onClick = {
+                        val offlineManager = OfflineSyncManager(context)
+
                         if (isSessionActive) {
+                            // LOGIC: USER IS AWAKE (END SESSION)
                             isLoading = true
                             coroutineScope.launch {
-                                try {
-                                    val token = "Bearer ${tokenManager.getToken()}"
-                                    val sessionId = tokenManager.getSessionId()
-                                    if (sessionId != -1) {
+                                val token = "Bearer ${tokenManager.getToken()}"
+                                val sessionId = tokenManager.getSessionId()
+
+                                // Handle local vs server-side session closure
+                                if (sessionId == -2) {
+                                    offlineManager.endOfflineSessionAndQueue()
+                                    tokenManager.saveSessionId(-1)
+                                } else if (sessionId > 0) {
+                                    try {
                                         RetrofitClient.apiService.endSession(token, sessionId)
-                                        tokenManager.saveSessionId(-1)
+                                    } catch (e: Exception) {
+                                        // Network unavailable during morning wake-up
+                                        offlineManager.queueStandaloneEnd(sessionId)
                                     }
-
-                                    context.stopService(Intent(context, MosquitoService::class.java))
-                                    context.stopService(Intent(context, LighthouseService::class.java))
-                                    context.stopService(Intent(context, StoneTestService::class.java))
-                                    context.stopService(Intent(context, CurtainService::class.java))
-
-                                    refreshStats()
-                                    isSessionActive = false
-                                    Toast.makeText(context, "Sesja zakończona. Dzień dobry!", Toast.LENGTH_SHORT).show()
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "Błąd podczas zamykania sesji.", Toast.LENGTH_SHORT).show()
-                                } finally {
-                                    isLoading = false
+                                    tokenManager.saveSessionId(-1)
                                 }
+
+                                // Terminate all hardware-level penalty listeners
+                                context.stopService(Intent(context, MosquitoService::class.java))
+                                context.stopService(Intent(context, LighthouseService::class.java))
+                                context.stopService(Intent(context, StoneTestService::class.java))
+                                context.stopService(Intent(context, CurtainService::class.java))
+
+                                refreshStats()
+                                isSessionActive = false
+                                isLoading = false
+                                Toast.makeText(context, "Sesja zakończona. Dzień dobry!", Toast.LENGTH_SHORT).show()
                             }
                         } else {
+                            // LOGIC: START SLEEP SESSION
                             isLoading = true
                             coroutineScope.launch {
+                                val token = "Bearer ${tokenManager.getToken()}"
                                 try {
-                                    val token = "Bearer ${tokenManager.getToken()}"
                                     val request = StartSessionRequest(sleepTime, wakeTime)
                                     val response = RetrofitClient.apiService.startSession(token, request)
-
                                     tokenManager.saveSessionId(response.session_id)
+                                } catch (e: Exception) {
+                                    // OFFLINE FALLBACK: Initialize standalone session tracking
+                                    offlineManager.startOfflineSession(sleepTime, wakeTime)
+                                    tokenManager.saveSessionId(-2) // Internal flag representing local-only session
+                                    Toast.makeText(context, "Brak sieci. Startujemy w trybie offline.", Toast.LENGTH_SHORT).show()
+                                } finally {
                                     isSessionActive = true
 
+                                    // Bootstrap the selected hardware penalty protocol
                                     when (selectedMode) {
                                         "Narastająca Kurtyna" -> {
                                             if (!Settings.canDrawOverlays(context)) {
-                                                val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
-                                                context.startActivity(intent)
+                                                context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")))
                                             } else {
                                                 ContextCompat.startForegroundService(context, Intent(context, CurtainService::class.java))
                                             }
@@ -712,9 +794,6 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                                         "Upierdliwy Komar" -> ContextCompat.startForegroundService(context, Intent(context, MosquitoService::class.java))
                                         "Latarnia Morska" -> ContextCompat.startForegroundService(context, Intent(context, LighthouseService::class.java))
                                     }
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "Błąd serwera. Sprawdź połączenie.", Toast.LENGTH_LONG).show()
-                                } finally {
                                     isLoading = false
                                 }
                             }

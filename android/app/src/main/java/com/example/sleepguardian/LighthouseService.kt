@@ -171,18 +171,32 @@ class LighthouseService : Service() {
         }
     }
 
+    /**
+     * Dispatches rule violations to the backend API or caches them locally via OfflineSyncManager.
+     * Evaluates active session state explicitly designed for robust offline execution.
+     */
     private fun reportPenalty(penaltyType: String) {
         val tokenManager = TokenManager(applicationContext)
         val token = tokenManager.getToken()
         val sessionId = tokenManager.getSessionId()
+        val offlineManager = OfflineSyncManager(applicationContext)
 
-        if (token != null && sessionId != -1) {
+        if (token != null) {
+            // TODO: Extract common Coroutine exception handling for improved crash reporting
             CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    val request = LogPenaltyRequest(penaltyType)
-                    RetrofitClient.apiService.logPenalty("Bearer $token", sessionId, request)
-                } catch (e: Exception) {
-                    e.printStackTrace()
+                if (sessionId == -2) {
+                    // ID -2 defines an offline-native session boundary
+                    offlineManager.addPenaltyToActiveOfflineSession(penaltyType)
+                } else if (sessionId > 0) {
+                    // Standard synced session execution
+                    try {
+                        val request = LogPenaltyRequest(penaltyType)
+                        RetrofitClient.apiService.logPenalty("Bearer $token", sessionId, request)
+                    } catch (e: Exception) {
+                        // Execution faltered during network disruption - queue for morning sync
+                        offlineManager.queueStandalonePenalty(sessionId, penaltyType)
+                        e.printStackTrace()
+                    }
                 }
             }
         }

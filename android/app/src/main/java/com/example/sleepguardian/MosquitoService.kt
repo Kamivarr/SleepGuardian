@@ -9,8 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.media.AudioAttributes
-import android.media.AudioFormat
-import android.media.AudioTrack
+import android.media.MediaPlayer
 import android.os.Build
 import android.os.CountDownTimer
 import android.os.IBinder
@@ -18,35 +17,25 @@ import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlin.math.sin
 
-/**
- * Foreground service managing the high-frequency audio penalty.
- * Evaluates screen state changes and applies a 120-second countdown penalty buffer.
- */
 class MosquitoService : Service() {
 
-    private var audioTrack: AudioTrack? = null
+    private var mediaPlayer: MediaPlayer? = null
     private var isPlaying = false
-    private var audioThread: Thread? = null
     private var screenStateReceiver: BroadcastReceiver? = null
     private var graceTimer: CountDownTimer? = null
 
-    private val sampleRate = 44100
-    private val frequency = 9000.0
-    private val durationInSeconds = 1
-    private val volumeFactor = 0.1
     private val gracePeriodMs: Long = 120000
 
     companion object {
-        const val ACTION_STOP_MOSQUITO = "com.example.sleepguardian.STOP_MOSQUITO"
+        const val ACTION_ABORT_SESSION = "com.example.sleepguardian.ABORT_MOSQUITO"
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP_MOSQUITO) {
-            stopSelf()
+        if (intent?.action == ACTION_ABORT_SESSION) {
+            abortSessionWithNegativeOpinion("Upierdliwy Komar (Przerwanie)")
             return START_NOT_STICKY
         }
         return START_STICKY
@@ -61,6 +50,7 @@ class MosquitoService : Service() {
 
     private fun initializeForegroundService() {
         val channelId = "sleep_guardian_audio_channel"
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 channelId,
@@ -70,20 +60,26 @@ class MosquitoService : Service() {
             getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
         }
 
-        val stopIntent = Intent(this, MosquitoService::class.java).apply {
-            action = ACTION_STOP_MOSQUITO
+        val abortIntent = Intent(this, MosquitoService::class.java).apply {
+            action = ACTION_ABORT_SESSION
         }
-        val stopPendingIntent = PendingIntent.getService(
-            this, 0, stopIntent,
+        val abortPendingIntent = PendingIntent.getService(
+            this,
+            0,
+            abortIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
         val notification = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("Upierdliwy Komar jest aktywny")
-            .setContentText("Zablokuj ekran, aby wyciszyć. Kliknij poniżej, aby zakończyć rygor.")
+            .setContentTitle("Ostrzeżenie Dźwiękowe")
+            .setContentText("Zablokuj ekran, aby wyciszyć.")
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setOngoing(true)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Zakończ sesję", stopPendingIntent)
+            .addAction(
+                android.R.drawable.ic_delete,
+                "Zakończ i poddaj się (-1 Serce)",
+                abortPendingIntent
+            )
             .build()
 
         startForeground(3, notification)
@@ -101,6 +97,7 @@ class MosquitoService : Service() {
                 }
             }
         }
+
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_ON)
             addAction(Intent.ACTION_SCREEN_OFF)
@@ -110,11 +107,11 @@ class MosquitoService : Service() {
 
     private fun startGraceTimer() {
         if (isPlaying) return
+
         graceTimer?.cancel()
-        graceTimer = object : CountDownTimer(gracePeriodMs, 1000) {
-            override fun onTick(millisUntilFinished: Long) {}
+        graceTimer = object : CountDownTimer(gracePeriodMs, 1000L) {
+            override fun onTick(millisUntilFinished: Long) = Unit
             override fun onFinish() {
-                reportPenalty("Upierdliwy Komar")
                 startMosquitoSound()
             }
         }.start()
@@ -128,77 +125,86 @@ class MosquitoService : Service() {
     private fun startMosquitoSound() {
         if (isPlaying) return
 
-        val bufferSize = AudioTrack.getMinBufferSize(
-            sampleRate,
-            AudioFormat.CHANNEL_OUT_MONO,
-            AudioFormat.ENCODING_PCM_16BIT
-        )
+        try {
+            stopMosquitoSound()
 
-        audioTrack = AudioTrack.Builder()
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ALARM)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build()
-            )
-            .setAudioFormat(
-                AudioFormat.Builder()
-                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                    .setSampleRate(sampleRate)
-                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                    .build()
-            )
-            .setBufferSizeInBytes(bufferSize)
-            .build()
+            val afd = resources.openRawResourceFd(R.raw.mosquito) ?: return
 
-        isPlaying = true
-        audioTrack?.play()
+            mediaPlayer = MediaPlayer().apply {
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                )
 
-        audioThread = Thread {
-            val numSamples = durationInSeconds * sampleRate
-            val generatedSnd = ShortArray(numSamples)
+                setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                afd.close()
 
-            while (isPlaying) {
-                for (i in 0 until numSamples) {
-                    val angle = 2.0 * Math.PI * i.toDouble() / (sampleRate / frequency)
-                    generatedSnd[i] = (sin(angle) * Short.MAX_VALUE * volumeFactor).toInt().toShort()
-                }
-                audioTrack?.write(generatedSnd, 0, numSamples)
+                isLooping = true
+                setVolume(1.0f, 1.0f)
+                prepare()
+                start()
             }
+
+            isPlaying = true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            stopMosquitoSound()
         }
-        audioThread?.start()
     }
 
     private fun stopMosquitoSound() {
         isPlaying = false
-        audioThread?.join(500)
-        audioThread = null
 
-        audioTrack?.apply {
+        mediaPlayer?.run {
             try {
-                stop()
+                if (this.isPlaying) {
+                    stop()
+                }
+            } catch (_: IllegalStateException) {
+                // Ignore invalid state and just release.
+            } finally {
                 release()
-            } catch (e: Exception) {
-                e.printStackTrace()
             }
         }
-        audioTrack = null
+
+        mediaPlayer = null
     }
 
-    private fun reportPenalty(penaltyType: String) {
+    private fun abortSessionWithNegativeOpinion(penaltyType: String) {
         val tokenManager = TokenManager(applicationContext)
         val token = tokenManager.getToken()
         val sessionId = tokenManager.getSessionId()
+        val offlineManager = OfflineSyncManager(applicationContext)
 
-        if (token != null && sessionId != -1) {
+        val prefs = applicationContext.getSharedPreferences("sleepguardian_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("negative_session_$sessionId", true).apply()
+
+        if (token != null) {
             CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    val request = LogPenaltyRequest(penaltyType)
-                    RetrofitClient.apiService.logPenalty("Bearer $token", sessionId, request)
-                } catch (e: Exception) {
-                    e.printStackTrace()
+                if (sessionId == -2) {
+                    offlineManager.addPenaltyToActiveOfflineSession(penaltyType)
+                    offlineManager.endOfflineSessionAndQueue()
+                } else if (sessionId > 0) {
+                    try {
+                        RetrofitClient.apiService.logPenalty(
+                            "Bearer $token",
+                            sessionId,
+                            LogPenaltyRequest(penaltyType)
+                        )
+                        RetrofitClient.apiService.endSession("Bearer $token", sessionId)
+                    } catch (e: Exception) {
+                        offlineManager.queueStandalonePenalty(sessionId, penaltyType)
+                        offlineManager.queueStandaloneEnd(sessionId)
+                    }
                 }
+                tokenManager.saveSessionId(-1)
+                sendBroadcast(Intent("com.example.sleepguardian.SESSION_ABORTED"))
+                stopSelf()
             }
+        } else {
+            stopSelf()
         }
     }
 

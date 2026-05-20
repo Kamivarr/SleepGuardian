@@ -27,7 +27,7 @@ import kotlinx.coroutines.launch
 
 /**
  * Foreground service responsible for rendering the system-level overlay (Curtain).
- * Implements a 120-second grace period upon screen activation before displaying the restriction.
+ * Allows users to manually abort the session at the cost of a negative opinion/heart.
  */
 class CurtainService : Service() {
 
@@ -52,21 +52,15 @@ class CurtainService : Service() {
     private fun initializeForegroundService() {
         val channelId = "sleep_guardian_overlay_channel"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                channelId,
-                "SleepGuardian Service",
-                NotificationManager.IMPORTANCE_LOW
-            )
+            val channel = NotificationChannel(channelId, "SleepGuardian Service", NotificationManager.IMPORTANCE_LOW)
             getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
         }
-
         val notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle("SleepGuardian")
             .setContentText("Ochrona snu aktywna")
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setOngoing(true)
             .build()
-
         startForeground(1, notification)
     }
 
@@ -94,9 +88,7 @@ class CurtainService : Service() {
         graceTimer?.cancel()
         graceTimer = object : CountDownTimer(gracePeriodMs, 1000) {
             override fun onTick(millisUntilFinished: Long) {}
-            override fun onFinish() {
-                renderOverlay()
-            }
+            override fun onFinish() { renderOverlay() }
         }.start()
     }
 
@@ -117,19 +109,14 @@ class CurtainService : Service() {
                     WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.CENTER
-        }
+        ).apply { gravity = Gravity.CENTER }
 
         overlayView = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             setBackgroundColor(Color.parseColor("#F2080808"))
             setPadding(64, 64, 64, 64)
-            this.layoutParams = ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
+            this.layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         }
 
         val titleText = TextView(this).apply {
@@ -150,7 +137,7 @@ class CurtainService : Service() {
         }
 
         val unlockButton = Button(this).apply {
-            text = "AWARYJNE ODBLOKOWANIE (KOSZTUJE SERCE)"
+            text = "ZAKOŃCZ SESJĘ (KOSZTUJE SERCE)"
             setTextColor(Color.parseColor("#FF5252"))
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
@@ -160,8 +147,7 @@ class CurtainService : Service() {
             }
             setPadding(64, 32, 64, 32)
             setOnClickListener {
-                reportPenalty("Narastająca Kurtyna (Przerwanie)")
-                stopSelf()
+                abortSessionWithNegativeOpinion("Narastająca Kurtyna (Awaryjne przerwanie)")
             }
         }
 
@@ -180,20 +166,40 @@ class CurtainService : Service() {
         }
     }
 
-    private fun reportPenalty(penaltyType: String) {
+    /**
+     * Terminates the current session completely, marks it as negatively aborted in local history,
+     * processes the penalty via OfflineSyncManager, and notifies the UI to update.
+     */
+    private fun abortSessionWithNegativeOpinion(penaltyType: String) {
         val tokenManager = TokenManager(applicationContext)
         val token = tokenManager.getToken()
         val sessionId = tokenManager.getSessionId()
+        val offlineManager = OfflineSyncManager(applicationContext)
 
-        if (token != null && sessionId != -1) {
+        val prefs = applicationContext.getSharedPreferences("sleepguardian_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("negative_session_$sessionId", true).apply()
+
+        if (token != null) {
             CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    val request = LogPenaltyRequest(penaltyType)
-                    RetrofitClient.apiService.logPenalty("Bearer $token", sessionId, request)
-                } catch (e: Exception) {
-                    e.printStackTrace()
+                if (sessionId == -2) {
+                    offlineManager.addPenaltyToActiveOfflineSession(penaltyType)
+                    offlineManager.endOfflineSessionAndQueue()
+                } else if (sessionId > 0) {
+                    try {
+                        RetrofitClient.apiService.logPenalty("Bearer $token", sessionId, LogPenaltyRequest(penaltyType))
+                        RetrofitClient.apiService.endSession("Bearer $token", sessionId)
+                    } catch (e: Exception) {
+                        offlineManager.queueStandalonePenalty(sessionId, penaltyType)
+                        offlineManager.queueStandaloneEnd(sessionId)
+                    }
                 }
+                tokenManager.saveSessionId(-1)
+
+                sendBroadcast(Intent("com.example.sleepguardian.SESSION_ABORTED"))
+                stopSelf()
             }
+        } else {
+            stopSelf()
         }
     }
 
