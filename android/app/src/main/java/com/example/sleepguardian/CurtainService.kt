@@ -36,7 +36,7 @@ class CurtainService : Service() {
     private var screenStateReceiver: BroadcastReceiver? = null
     private var graceTimer: CountDownTimer? = null
 
-    private val gracePeriodMs: Long = 120000
+    private val gracePeriodMs: Long = 1
     private var isOverlayShowing = false
 
     override fun onBind(intent: Intent?): IBinder? = null

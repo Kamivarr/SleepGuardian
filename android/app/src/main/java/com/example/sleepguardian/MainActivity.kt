@@ -12,11 +12,8 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
@@ -27,19 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Bedtime
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Email
-import androidx.compose.material.icons.filled.ExitToApp
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FlashlightOn
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.LocalFireDepartment
-import androidx.compose.material.icons.filled.NotificationsActive
-import androidx.compose.material.icons.filled.Smartphone
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -53,6 +38,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -62,6 +48,9 @@ import java.util.Calendar
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Initialize the new Android 12+ Splash Screen API
+        installSplashScreen()
+
         super.onCreate(savedInstanceState)
         setContent {
             SleepGuardianTheme {
@@ -143,11 +132,16 @@ private fun SectionCard(content: @Composable ColumnScope.() -> Unit) {
     }
 }
 
+/**
+ * Enhanced metric indicator pill (Hearts/Streak) featuring smooth value transitions.
+ * Visually reacts to state changes (e.g., slides up for rewards, down for penalties).
+ */
 @Composable
-private fun MetricPill(
+private fun AnimatedMetricPill(
     icon: ImageVector,
     label: String,
-    value: String,
+    value: Int,
+    suffix: String,
     tint: Color,
     modifier: Modifier = Modifier
 ) {
@@ -164,7 +158,25 @@ private fun MetricPill(
         ) {
             Icon(icon, contentDescription = label, tint = tint)
             Spacer(modifier = Modifier.width(8.dp))
-            Text(value, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+
+            // Animated content transition for dynamic numbers
+            AnimatedContent(
+                targetState = value,
+                transitionSpec = {
+                    if (targetState > initialState) {
+                        // Slide up animation for value increase (Reward)
+                        (slideInVertically(animationSpec = tween(400)) { height -> height } + fadeIn(animationSpec = tween(400)))
+                            .togetherWith(slideOutVertically(animationSpec = tween(400)) { height -> -height } + fadeOut(animationSpec = tween(400)))
+                    } else {
+                        // Slide down animation for value decrease (Penalty)
+                        (slideInVertically(animationSpec = tween(400)) { height -> -height } + fadeIn(animationSpec = tween(400)))
+                            .togetherWith(slideOutVertically(animationSpec = tween(400)) { height -> height } + fadeOut(animationSpec = tween(400)))
+                    }
+                },
+                label = "metric_animation"
+            ) { animatedValue ->
+                Text("$animatedValue$suffix", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
@@ -436,11 +448,6 @@ fun RegisterScreen(navController: NavController) {
     }
 }
 
-/**
- * Widok historii sesji snu.
- * Pobiera i wyświetla zrealizowane sesje użytkownika, wyróżniając graficznie
- * te, które zostały przerwane (poddane) negatywnie.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryScreen(navController: NavController, tokenManager: TokenManager) {
@@ -450,6 +457,7 @@ fun HistoryScreen(navController: NavController, tokenManager: TokenManager) {
     var errorMessage by remember { mutableStateOf("") }
     val coroutineScope = rememberCoroutineScope()
 
+    // Fetch history records from the server
     LaunchedEffect(Unit) {
         coroutineScope.launch {
             try {
@@ -552,11 +560,6 @@ fun HistoryScreen(navController: NavController, tokenManager: TokenManager) {
     }
 }
 
-/**
- * Główny panel użytkownika (Dashboard).
- * Obsługuje konfigurację harmonogramów snu, uruchamianie usług sprzętowych
- * oraz zapewnia stabilne zarządzanie cyklem życia sesji wraz z opcją poddania się (Surrender).
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
@@ -581,8 +584,8 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
     var selectedMode by remember { mutableStateOf(rigourModes.first().name) }
 
     /**
-     * Aktualizuje statystyki oparte na mechanizmach grywalizacji, preferując dane lokalne,
-     * i próbuje dokonać synchronizacji z backendem w tle.
+     * Refreshes the local UI state by pulling the latest cached gamification stats
+     * and attempting a background synchronization with the server.
      */
     fun refreshStats() {
         coroutineScope.launch {
@@ -601,14 +604,20 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
 
     LaunchedEffect(Unit) { refreshStats() }
 
-    // Reaguje na przerwanie sesji narzucone sprzętowo (np. usługa działająca w tle)
+    // Register a BroadcastReceiver to listen for session aborts triggered by background services
     DisposableEffect(Unit) {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(c: Context?, intent: Intent?) {
                 if (intent?.action == "com.example.sleepguardian.SESSION_ABORTED") {
                     isSessionActive = false
                     refreshStats()
-                    Toast.makeText(context, "Sesja została przerwana i odnotowana w historii.", Toast.LENGTH_LONG).show()
+                    // Re-checking stats to show a context-aware generic toast
+                    val offlineManager = OfflineSyncManager(context)
+                    if (offlineManager.getCachedStreak() == 0) {
+                        Toast.makeText(context, "Brak serc! Twój Streak spada do zera.", Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(context, "Poddajesz się, ale Serce ratuje Twój Streak!", Toast.LENGTH_LONG).show()
+                    }
                 }
             }
         }
@@ -622,8 +631,8 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
     }
 
     /**
-     * Obsługuje proces manualnego anulowania (poddania się) z poziomu panelu Dashboard.
-     * Dodaje odpowiednie kary i aktualizuje lokalne stany, kończąc usługi sprzętowe.
+     * Handles manual surrender initiated from the app UI.
+     * Evaluates gamification rules (Streak Freeze) and stops all running penalty services.
      */
     fun handleSurrender() {
         isLoading = true
@@ -636,7 +645,8 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
             val prefs = context.getSharedPreferences("sleepguardian_prefs", Context.MODE_PRIVATE)
             prefs.edit().putBoolean("negative_session_$sessionId", true).apply()
 
-            offlineManager.recordFailedSession()
+            // Apply Gamification Rules (Streak Freeze logic)
+            val streakSaved = offlineManager.recordFailedSession()
             offlineManager.recordSessionEnd()
 
             if (token != null) {
@@ -655,6 +665,8 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
             }
 
             tokenManager.saveSessionId(-1)
+
+            // Terminate all potential penalty services
             context.stopService(Intent(context, MosquitoService::class.java))
             context.stopService(Intent(context, LighthouseService::class.java))
             context.stopService(Intent(context, StoneTestService::class.java))
@@ -663,7 +675,13 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
             refreshStats()
             isSessionActive = false
             isLoading = false
-            Toast.makeText(context, "Mięczak! Straciłeś serce.", Toast.LENGTH_SHORT).show()
+
+            // Provide context-aware feedback
+            if (streakSaved) {
+                Toast.makeText(context, "Poddajesz się, ale Serce ratuje Twój Streak!", Toast.LENGTH_LONG).show()
+            } else {
+                Toast.makeText(context, "Brak serc! Twój Streak spada do zera.", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -720,17 +738,19 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    MetricPill(
+                    AnimatedMetricPill(
                         icon = Icons.Default.LocalFireDepartment,
                         label = "Streak",
-                        value = "$currentStreak dni",
+                        value = currentStreak,
+                        suffix = " dni",
                         tint = SleepThemeWarning,
                         modifier = Modifier.weight(1f)
                     )
-                    MetricPill(
+                    AnimatedMetricPill(
                         icon = Icons.Default.Favorite,
                         label = "Serca",
-                        value = "$heartsRemaining",
+                        value = heartsRemaining,
+                        suffix = "",
                         tint = SleepThemeError,
                         modifier = Modifier.weight(1f)
                     )
@@ -907,7 +927,7 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                     }
                 }
 
-                Spacer(modifier = Modifier.weight(1f)) // Zastąpienie stałego odstępu, aby przyciski opadały na dół ekranu
+                Spacer(modifier = Modifier.weight(1f))
 
                 if (isSessionActive) {
                     Button(
@@ -943,28 +963,36 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                         },
                         modifier = Modifier.fillMaxWidth().height(62.dp),
                         shape = RoundedCornerShape(22.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = SleepThemeSuccess, contentColor = Color(0xFF07140C)),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = SleepThemeSuccess,
+                            contentColor = Color(0xFF07140C),
+                            disabledContainerColor = SleepThemeSuccess.copy(alpha = 0.5f)
+                        ),
                         enabled = !isLoading
                     ) { Text("Wstałem — zakończ sesję", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Użytkownik decyduje się na kapitulację wprost z ekranu głównego (wbudowany cooldown i straty)
+                    // Dynamically set button text based on remaining Hearts
+                    val surrenderText = if (heartsRemaining > 0) "Poddaję się (-1 Serce)" else "Poddaję się (Utrata Streaku!)"
+
                     OutlinedButton(
                         onClick = { handleSurrender() },
                         modifier = Modifier.fillMaxWidth().height(54.dp),
                         shape = RoundedCornerShape(22.dp),
                         border = BorderStroke(1.dp, SleepThemeError.copy(alpha = 0.5f)),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = SleepThemeError),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = SleepThemeError,
+                            disabledContentColor = SleepThemeError.copy(alpha = 0.5f)
+                        ),
                         enabled = !isLoading
-                    ) { Text("Poddaję się (-1 Serce)", style = MaterialTheme.typography.titleMedium) }
+                    ) { Text(surrenderText, style = MaterialTheme.typography.titleMedium) }
 
                 } else {
                     Button(
                         onClick = {
                             val offlineManager = OfflineSyncManager(context)
 
-                            // Weryfikacja blokady czasowej (Cooldown), zapobiegająca farmowaniu sesji/kar
                             if (!offlineManager.canStartNewSession()) {
                                 Toast.makeText(context, "Musisz odczekać przed kolejną sesją!", Toast.LENGTH_LONG).show()
                                 return@Button

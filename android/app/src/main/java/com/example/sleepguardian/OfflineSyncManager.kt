@@ -38,7 +38,7 @@ class OfflineSyncManager(context: Context) {
         val lastEnd = prefs.getLong("last_session_end_timestamp", 0L)
         val currentTime = System.currentTimeMillis()
 
-        // TODO na produkcję: Zmień 15_000L (15 s) na 12 * 60 * 60 * 1000L (12 godzin)
+        // TODO for production: Change 15_000L (15 sec test) to 12 * 60 * 60 * 1000L (12 hours)
         val cooldownMs = 15_000L
 
         return (currentTime - lastEnd) > cooldownMs
@@ -183,8 +183,9 @@ class OfflineSyncManager(context: Context) {
     fun getCachedHearts(): Int = prefs.getInt("cached_hearts", 3)
 
     /**
-     * Optimistically updates local state for a successful session.
-     * Ensures user gains max 1 heart and 1 streak point per calendar day.
+     * Optimized reward calculation.
+     * Adds +1 to the current streak (max once a day) and restores +1 heart (max 3).
+     * Provides immediate UI feedback without waiting for server response.
      */
     fun recordSuccessfulSession() {
         val currentHearts = getCachedHearts()
@@ -196,28 +197,32 @@ class OfflineSyncManager(context: Context) {
             prefs.edit().putString("last_success_date", today).apply()
             currentStreak + 1
         } else {
-            currentStreak
+            currentStreak // Prevents farming streaks multiple times in a single day
         }
 
-        saveCachedStats(newStreak, minOf(3, currentHearts + 1))
+        // Hearts can be restored even multiple times a day (up to max 3)
+        val newHearts = minOf(3, currentHearts + 1)
+        saveCachedStats(newStreak, newHearts)
     }
 
     /**
-     * Optimistically processes a penalty.
-     * Streak is ALWAYS broken upon failure. Heart loss is limited to 1 per calendar day.
+     * Optimized penalty processing with "Streak Freeze" logic.
+     * - If the user has >0 hearts: Subtracts 1 heart, protects the streak.
+     * - If the user has 0 hearts: Drops the streak to 0.
+     * Returns true if a heart saved the streak, false if the streak was lost.
      */
-    fun recordFailedSession() {
+    fun recordFailedSession(): Boolean {
         val currentHearts = getCachedHearts()
-        val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-        val lastPenaltyDate = prefs.getString("last_penalty_date", "")
+        val currentStreak = getCachedStreak()
 
-        val newHearts = if (lastPenaltyDate != today) {
-            prefs.edit().putString("last_penalty_date", today).apply()
-            maxOf(0, currentHearts - 1)
+        return if (currentHearts > 0) {
+            // Streak Freeze triggered: lose a heart, keep the streak
+            saveCachedStats(currentStreak, currentHearts - 1)
+            true
         } else {
-            currentHearts
+            // No hearts left: reset streak to 0, hearts remain 0
+            saveCachedStats(0, 0)
+            false
         }
-
-        saveCachedStats(0, newHearts)
     }
 }
