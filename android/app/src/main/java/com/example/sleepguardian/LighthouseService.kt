@@ -19,7 +19,7 @@ import kotlinx.coroutines.launch
 
 /**
  * Foreground service managing the stroboscopic flashlight penalty.
- * Introduces a 120-second grace period before hardware activation and backend reporting.
+ * Allows user to surrender via the notification tray, applying a penalty and ending the session.
  */
 class LighthouseService : Service() {
 
@@ -34,14 +34,14 @@ class LighthouseService : Service() {
     private val gracePeriodMs: Long = 120000
 
     companion object {
-        const val ACTION_STOP_LIGHTHOUSE = "com.example.sleepguardian.STOP_LIGHTHOUSE"
+        const val ACTION_ABORT_SESSION = "com.example.sleepguardian.ABORT_LIGHTHOUSE"
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP_LIGHTHOUSE) {
-            stopSelf()
+        if (intent?.action == ACTION_ABORT_SESSION) {
+            abortSessionWithNegativeOpinion("Latarnia Morska (Poddanie się)")
             return START_NOT_STICKY
         }
         return START_STICKY
@@ -78,20 +78,20 @@ class LighthouseService : Service() {
             getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
         }
 
-        val stopIntent = Intent(this, LighthouseService::class.java).apply {
-            action = ACTION_STOP_LIGHTHOUSE
+        val abortIntent = Intent(this, LighthouseService::class.java).apply {
+            action = ACTION_ABORT_SESSION
         }
-        val stopPendingIntent = PendingIntent.getService(
-            this, 0, stopIntent,
+        val abortPendingIntent = PendingIntent.getService(
+            this, 0, abortIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
         val notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle("Latarnia Morska jest aktywna")
-            .setContentText("Zablokuj ekran, aby zgasić. Kliknij poniżej, aby zakończyć rygor.")
+            .setContentText("Zablokuj ekran, aby zgasić.")
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setOngoing(true)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Zakończ sesję", stopPendingIntent)
+            .addAction(android.R.drawable.ic_delete, "Poddaję się", abortPendingIntent)
             .build()
 
         startForeground(4, notification)
@@ -122,7 +122,6 @@ class LighthouseService : Service() {
         graceTimer = object : CountDownTimer(gracePeriodMs, 1000) {
             override fun onTick(millisUntilFinished: Long) {}
             override fun onFinish() {
-                reportPenalty("Latarnia Morska")
                 startFlashing()
             }
         }.start()
@@ -171,34 +170,42 @@ class LighthouseService : Service() {
         }
     }
 
-    /**
-     * Dispatches rule violations to the backend API or caches them locally via OfflineSyncManager.
-     * Evaluates active session state explicitly designed for robust offline execution.
-     */
-    private fun reportPenalty(penaltyType: String) {
+    private fun abortSessionWithNegativeOpinion(penaltyType: String) {
         val tokenManager = TokenManager(applicationContext)
         val token = tokenManager.getToken()
         val sessionId = tokenManager.getSessionId()
         val offlineManager = OfflineSyncManager(applicationContext)
 
+        val prefs = applicationContext.getSharedPreferences("sleepguardian_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("negative_session_$sessionId", true).apply()
+
+        offlineManager.recordFailedSession()
+        offlineManager.recordSessionEnd()
+
         if (token != null) {
-            // TODO: Extract common Coroutine exception handling for improved crash reporting
             CoroutineScope(Dispatchers.IO).launch {
                 if (sessionId == -2) {
-                    // ID -2 defines an offline-native session boundary
                     offlineManager.addPenaltyToActiveOfflineSession(penaltyType)
+                    offlineManager.endOfflineSessionAndQueue()
                 } else if (sessionId > 0) {
-                    // Standard synced session execution
                     try {
-                        val request = LogPenaltyRequest(penaltyType)
-                        RetrofitClient.apiService.logPenalty("Bearer $token", sessionId, request)
+                        RetrofitClient.apiService.logPenalty("Bearer $token", sessionId, LogPenaltyRequest(penaltyType))
+                        RetrofitClient.apiService.endSession("Bearer $token", sessionId)
                     } catch (e: Exception) {
-                        // Execution faltered during network disruption - queue for morning sync
                         offlineManager.queueStandalonePenalty(sessionId, penaltyType)
-                        e.printStackTrace()
+                        offlineManager.queueStandaloneEnd(sessionId)
                     }
                 }
+                tokenManager.saveSessionId(-1)
+
+                val intent = Intent("com.example.sleepguardian.SESSION_ABORTED").apply {
+                    setPackage(applicationContext.packageName)
+                }
+                sendBroadcast(intent)
+                stopSelf()
             }
+        } else {
+            stopSelf()
         }
     }
 

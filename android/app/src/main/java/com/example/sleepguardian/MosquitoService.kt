@@ -18,6 +18,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
+/**
+ * Service managing the audio penalty.
+ * Allows user to surrender via the notification tray, applying a penalty and ending the session.
+ */
 class MosquitoService : Service() {
 
     private var mediaPlayer: MediaPlayer? = null
@@ -35,7 +39,7 @@ class MosquitoService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_ABORT_SESSION) {
-            abortSessionWithNegativeOpinion("Upierdliwy Komar (Przerwanie)")
+            abortSessionWithNegativeOpinion("Upierdliwy Komar (Poddanie się)")
             return START_NOT_STICKY
         }
         return START_STICKY
@@ -77,7 +81,7 @@ class MosquitoService : Service() {
             .setOngoing(true)
             .addAction(
                 android.R.drawable.ic_delete,
-                "Zakończ i poddaj się (-1 Serce)",
+                "Poddaję się",
                 abortPendingIntent
             )
             .build()
@@ -163,7 +167,6 @@ class MosquitoService : Service() {
                     stop()
                 }
             } catch (_: IllegalStateException) {
-                // Ignore invalid state and just release.
             } finally {
                 release()
             }
@@ -180,6 +183,9 @@ class MosquitoService : Service() {
 
         val prefs = applicationContext.getSharedPreferences("sleepguardian_prefs", Context.MODE_PRIVATE)
         prefs.edit().putBoolean("negative_session_$sessionId", true).apply()
+
+        offlineManager.recordFailedSession()
+        offlineManager.recordSessionEnd()
 
         if (token != null) {
             CoroutineScope(Dispatchers.IO).launch {
@@ -200,7 +206,10 @@ class MosquitoService : Service() {
                     }
                 }
                 tokenManager.saveSessionId(-1)
-                sendBroadcast(Intent("com.example.sleepguardian.SESSION_ABORTED"))
+                val intent = Intent("com.example.sleepguardian.SESSION_ABORTED").apply {
+                    setPackage(applicationContext.packageName)
+                }
+                sendBroadcast(intent)
                 stopSelf()
             }
         } else {

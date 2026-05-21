@@ -2,6 +2,7 @@ package com.example.sleepguardian
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -15,25 +16,33 @@ import android.os.IBinder
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
-import kotlin.math.sqrt
 
 /**
  * Foreground service for the "Test Kamienia" penalty mode.
- * Dynamically evaluates hardware accelerometer to trigger a 30-second warning sequence.
- * Failing to put the device down aborts the entire sleep session negatively.
+ * Evaluates planar orientation to ensure the device is completely flat.
+ * Aborts session automatically after ignoring consecutive warnings.
  */
 class StoneTestService : Service(), SensorEventListener {
 
     private lateinit var sensorManager: SensorManager
     private var accelerometer: Sensor? = null
 
-    private val upperThreshold = 10.5f
-    private val lowerThreshold = 9.0f
-
     private var warningJob: Job? = null
     private var stationaryJob: Job? = null
 
+    companion object {
+        const val ACTION_ABORT_SESSION = "com.example.sleepguardian.ABORT_STONE"
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_ABORT_SESSION) {
+            abortSessionWithNegativeOpinion("Test Kamienia (Poddanie się)")
+            return START_NOT_STICKY
+        }
+        return START_STICKY
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -57,11 +66,20 @@ class StoneTestService : Service(), SensorEventListener {
             getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
         }
 
+        val abortIntent = Intent(this, StoneTestService::class.java).apply {
+            action = ACTION_ABORT_SESSION
+        }
+        val abortPendingIntent = PendingIntent.getService(
+            this, 0, abortIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
         val notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle("Test Kamienia")
-            .setContentText("Ochrona jest aktywna. Każde podniesienie telefonu wywołuje ostrzeżenie.")
+            .setContentText("Połóż telefon płasko. Każde podniesienie wywołuje karę.")
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setOngoing(true)
+            .addAction(android.R.drawable.ic_delete, "Poddaję się", abortPendingIntent)
             .build()
 
         startForeground(2, notification)
@@ -72,11 +90,13 @@ class StoneTestService : Service(), SensorEventListener {
             val x = it.values[0]
             val y = it.values[1]
             val z = it.values[2]
-            val magnitude = sqrt((x * x + y * y + z * z).toDouble()).toFloat()
-            val isMoving = magnitude > upperThreshold || magnitude < lowerThreshold
+
+            // Urządzenie leżące płasko na stole ma wektory X i Y bliskie 0, a Z bliskie grawitacji (9.81)
+            // Znaczne wychylenie osi X lub Y wskazuje na to, że telefon jest w dłoni.
+            val isFlat = Math.abs(x) < 2.0f && Math.abs(y) < 2.0f && Math.abs(z) > 8.0f
+            val isMoving = !isFlat
 
             if (isMoving) {
-                // Jeśli zarejestrowano ruch: anuluj zadanie stacjonarne (resetujące) i rozpocznij ostrzeżenia
                 stationaryJob?.cancel()
                 stationaryJob = null
 
@@ -84,14 +104,13 @@ class StoneTestService : Service(), SensorEventListener {
                     startWarningSequence()
                 }
             } else {
-                // Jeśli telefon jest nieruchomy, poczekaj 2 sekundy i anuluj proces ostrzeżeń
                 if (warningJob != null && stationaryJob == null) {
                     stationaryJob = CoroutineScope(Dispatchers.Default).launch {
                         delay(2000)
                         warningJob?.cancel()
                         warningJob = null
                         withContext(Dispatchers.Main) {
-                            Toast.makeText(applicationContext, "Telefon odłożony. Reset licznika.", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(applicationContext, "Telefon odłożony płasko. Reset licznika.", Toast.LENGTH_SHORT).show()
                         }
                     }
                 }
@@ -101,16 +120,14 @@ class StoneTestService : Service(), SensorEventListener {
 
     /**
      * Executes the 30-second penalty verification pipeline.
-     * Notifies the user every 10 seconds.
      */
     private fun startWarningSequence() {
         warningJob = CoroutineScope(Dispatchers.Main).launch {
             for (i in 3 downTo 1) {
-                Toast.makeText(applicationContext, "Odłóż telefon! Zostało ${i * 10} sekund", Toast.LENGTH_LONG).show()
+                Toast.makeText(applicationContext, "Odłóż telefon płasko! Zostało ${i * 10} sekund", Toast.LENGTH_LONG).show()
                 playWarningBeep()
-                delay(10000) // Czekamy 10 sekund do następnego ostrzeżenia
+                delay(10000)
             }
-            // Jeśli Coroutine nie zostało zablokowane (telefon się ruszał przez 30 sekund) -> KARA
             abortSessionWithNegativeOpinion("Test Kamienia (Ignorowanie ostrzeżeń)")
         }
     }
@@ -123,10 +140,6 @@ class StoneTestService : Service(), SensorEventListener {
         } catch (e: Exception) { e.printStackTrace() }
     }
 
-    /**
-     * Terminates the current session completely, marks it as negatively aborted in local history,
-     * processes the penalty via OfflineSyncManager, and notifies the UI to update.
-     */
     private fun abortSessionWithNegativeOpinion(penaltyType: String) {
         val tokenManager = TokenManager(applicationContext)
         val token = tokenManager.getToken()
@@ -135,6 +148,9 @@ class StoneTestService : Service(), SensorEventListener {
 
         val prefs = applicationContext.getSharedPreferences("sleepguardian_prefs", Context.MODE_PRIVATE)
         prefs.edit().putBoolean("negative_session_$sessionId", true).apply()
+
+        offlineManager.recordFailedSession()
+        offlineManager.recordSessionEnd() // Zablokuj farmienie
 
         if (token != null) {
             CoroutineScope(Dispatchers.IO).launch {
@@ -151,7 +167,12 @@ class StoneTestService : Service(), SensorEventListener {
                     }
                 }
                 tokenManager.saveSessionId(-1)
-                sendBroadcast(Intent("com.example.sleepguardian.SESSION_ABORTED"))
+
+                // SetPackage gwarantuje, że najnowszy Android 14+ przepuści nasz Broadcast!
+                val intent = Intent("com.example.sleepguardian.SESSION_ABORTED").apply {
+                    setPackage(applicationContext.packageName)
+                }
+                sendBroadcast(intent)
                 stopSelf()
             }
         } else {

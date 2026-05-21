@@ -22,7 +22,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bedtime
@@ -434,6 +436,11 @@ fun RegisterScreen(navController: NavController) {
     }
 }
 
+/**
+ * Widok historii sesji snu.
+ * Pobiera i wyświetla zrealizowane sesje użytkownika, wyróżniając graficznie
+ * te, które zostały przerwane (poddane) negatywnie.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryScreen(navController: NavController, tokenManager: TokenManager) {
@@ -545,11 +552,17 @@ fun HistoryScreen(navController: NavController, tokenManager: TokenManager) {
     }
 }
 
+/**
+ * Główny panel użytkownika (Dashboard).
+ * Obsługuje konfigurację harmonogramów snu, uruchamianie usług sprzętowych
+ * oraz zapewnia stabilne zarządzanie cyklem życia sesji wraz z opcją poddania się (Surrender).
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val scrollState = rememberScrollState()
 
     var sleepTime by remember { mutableStateOf("22:00") }
     var wakeTime by remember { mutableStateOf("06:00") }
@@ -567,6 +580,10 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
     )
     var selectedMode by remember { mutableStateOf(rigourModes.first().name) }
 
+    /**
+     * Aktualizuje statystyki oparte na mechanizmach grywalizacji, preferując dane lokalne,
+     * i próbuje dokonać synchronizacji z backendem w tle.
+     */
     fun refreshStats() {
         coroutineScope.launch {
             val offlineManager = OfflineSyncManager(context)
@@ -577,25 +594,21 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                 val token = tokenManager.getToken()
                 if (token != null) {
                     offlineManager.syncAll(token)
-                    val stats = RetrofitClient.apiService.getStats("Bearer $token")
-                    currentStreak = stats.current_streak
-                    heartsRemaining = stats.hearts
-                    offlineManager.saveCachedStats(stats.current_streak, stats.hearts)
                 }
-            } catch (_: Exception) {
-            }
+            } catch (_: Exception) { }
         }
     }
 
     LaunchedEffect(Unit) { refreshStats() }
 
+    // Reaguje na przerwanie sesji narzucone sprzętowo (np. usługa działająca w tle)
     DisposableEffect(Unit) {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(c: Context?, intent: Intent?) {
                 if (intent?.action == "com.example.sleepguardian.SESSION_ABORTED") {
                     isSessionActive = false
                     refreshStats()
-                    Toast.makeText(context, "Sesja została przerwana za karę!", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "Sesja została przerwana i odnotowana w historii.", Toast.LENGTH_LONG).show()
                 }
             }
         }
@@ -608,15 +621,50 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
         onDispose { context.unregisterReceiver(receiver) }
     }
 
-    fun showTimePicker(onTimeSelected: (String) -> Unit) {
-        val calendar = Calendar.getInstance()
-        TimePickerDialog(
-            context,
-            { _, hour, minute -> onTimeSelected(String.format("%02d:%02d", hour, minute)) },
-            calendar.get(Calendar.HOUR_OF_DAY),
-            calendar.get(Calendar.MINUTE),
-            true
-        ).show()
+    /**
+     * Obsługuje proces manualnego anulowania (poddania się) z poziomu panelu Dashboard.
+     * Dodaje odpowiednie kary i aktualizuje lokalne stany, kończąc usługi sprzętowe.
+     */
+    fun handleSurrender() {
+        isLoading = true
+        coroutineScope.launch {
+            val offlineManager = OfflineSyncManager(context)
+            val token = tokenManager.getToken()
+            val sessionId = tokenManager.getSessionId()
+            val penaltyType = "Poddanie się z poziomu aplikacji"
+
+            val prefs = context.getSharedPreferences("sleepguardian_prefs", Context.MODE_PRIVATE)
+            prefs.edit().putBoolean("negative_session_$sessionId", true).apply()
+
+            offlineManager.recordFailedSession()
+            offlineManager.recordSessionEnd()
+
+            if (token != null) {
+                if (sessionId == -2) {
+                    offlineManager.addPenaltyToActiveOfflineSession(penaltyType)
+                    offlineManager.endOfflineSessionAndQueue()
+                } else if (sessionId > 0) {
+                    try {
+                        RetrofitClient.apiService.logPenalty("Bearer $token", sessionId, LogPenaltyRequest(penaltyType))
+                        RetrofitClient.apiService.endSession("Bearer $token", sessionId)
+                    } catch (e: Exception) {
+                        offlineManager.queueStandalonePenalty(sessionId, penaltyType)
+                        offlineManager.queueStandaloneEnd(sessionId)
+                    }
+                }
+            }
+
+            tokenManager.saveSessionId(-1)
+            context.stopService(Intent(context, MosquitoService::class.java))
+            context.stopService(Intent(context, LighthouseService::class.java))
+            context.stopService(Intent(context, StoneTestService::class.java))
+            context.stopService(Intent(context, CurtainService::class.java))
+
+            refreshStats()
+            isSessionActive = false
+            isLoading = false
+            Toast.makeText(context, "Mięczak! Straciłeś serce.", Toast.LENGTH_SHORT).show()
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -662,7 +710,8 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
-                    .padding(horizontal = 20.dp),
+                    .padding(horizontal = 20.dp)
+                    .verticalScroll(scrollState),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Spacer(modifier = Modifier.height(8.dp))
@@ -717,7 +766,9 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                                         Text(sleepTime, style = MaterialTheme.typography.titleMedium)
                                     }
                                 }
-                                TextButton(onClick = { showTimePicker { sleepTime = it } }) { Text("Edytuj") }
+                                TextButton(onClick = {
+                                    TimePickerDialog(context, { _, hour, minute -> sleepTime = String.format("%02d:%02d", hour, minute) }, 22, 0, true).show()
+                                }) { Text("Edytuj") }
                             }
 
                             Spacer(modifier = Modifier.height(12.dp))
@@ -735,7 +786,9 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                                         Text(wakeTime, style = MaterialTheme.typography.titleMedium)
                                     }
                                 }
-                                TextButton(onClick = { showTimePicker { wakeTime = it } }) { Text("Edytuj") }
+                                TextButton(onClick = {
+                                    TimePickerDialog(context, { _, hour, minute -> wakeTime = String.format("%02d:%02d", hour, minute) }, 6, 0, true).show()
+                                }) { Text("Edytuj") }
                             }
                         }
 
@@ -760,8 +813,6 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                                         if (i + j < rigourModes.size) {
                                             val mode = rigourModes[i + j]
                                             val isSelected = selectedMode == mode.name
-                                            val borderColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
-
                                             Card(
                                                 onClick = { selectedMode = mode.name },
                                                 modifier = Modifier.weight(1f).aspectRatio(1.02f),
@@ -771,9 +822,8 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                                                 ),
                                                 border = BorderStroke(
                                                     width = if (isSelected) 2.dp else 1.dp,
-                                                    color = borderColor
-                                                ),
-                                                elevation = CardDefaults.cardElevation(0.dp)
+                                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                                                )
                                             ) {
                                                 Column(
                                                     modifier = Modifier.fillMaxSize().padding(14.dp),
@@ -785,7 +835,7 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                                                         color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
                                                     ) {
                                                         Icon(
-                                                            imageVector = mode.icon,
+                                                            mode.icon,
                                                             contentDescription = mode.name,
                                                             tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                                             modifier = Modifier.padding(10.dp).size(26.dp)
@@ -793,7 +843,7 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                                                     }
                                                     Spacer(modifier = Modifier.height(10.dp))
                                                     Text(
-                                                        text = mode.name,
+                                                        mode.name,
                                                         style = MaterialTheme.typography.bodyMedium,
                                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                                         textAlign = TextAlign.Center,
@@ -801,7 +851,7 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                                                     )
                                                     Spacer(modifier = Modifier.height(4.dp))
                                                     Text(
-                                                        text = mode.desc,
+                                                        mode.desc,
                                                         style = MaterialTheme.typography.labelSmall,
                                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                         textAlign = TextAlign.Center
@@ -825,7 +875,7 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                     exit = fadeOut()
                 ) {
                     Column(
-                        modifier = Modifier.fillMaxWidth().padding(top = 54.dp),
+                        modifier = Modifier.fillMaxWidth().padding(top = 32.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
@@ -835,7 +885,7 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
                         ) {
                             Icon(
-                                imageVector = Icons.Default.CheckCircle,
+                                Icons.Default.CheckCircle,
                                 contentDescription = "Active",
                                 modifier = Modifier.padding(18.dp).size(92.dp),
                                 tint = MaterialTheme.colorScheme.primary
@@ -843,41 +893,40 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                         }
                         Spacer(modifier = Modifier.height(22.dp))
                         Text(
-                            text = "Ochrona snu aktywna",
+                            "Ochrona snu aktywna",
                             style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onBackground
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Tryb: $selectedMode",
+                            "Tryb: $selectedMode",
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.weight(1f))
+                Spacer(modifier = Modifier.weight(1f)) // Zastąpienie stałego odstępu, aby przyciski opadały na dół ekranu
 
-                Button(
-                    onClick = {
-                        val offlineManager = OfflineSyncManager(context)
-
-                        if (isSessionActive) {
+                if (isSessionActive) {
+                    Button(
+                        onClick = {
                             isLoading = true
                             coroutineScope.launch {
+                                val offlineManager = OfflineSyncManager(context)
                                 val token = "Bearer ${tokenManager.getToken()}"
                                 val sessionId = tokenManager.getSessionId()
+
+                                offlineManager.recordSuccessfulSession()
+                                offlineManager.recordSessionEnd()
 
                                 if (sessionId == -2) {
                                     offlineManager.endOfflineSessionAndQueue()
                                     tokenManager.saveSessionId(-1)
                                 } else if (sessionId > 0) {
-                                    try {
-                                        RetrofitClient.apiService.endSession(token, sessionId)
-                                    } catch (_: Exception) {
-                                        offlineManager.queueStandaloneEnd(sessionId)
-                                    }
+                                    try { RetrofitClient.apiService.endSession(token, sessionId) }
+                                    catch (_: Exception) { offlineManager.queueStandaloneEnd(sessionId) }
                                     tokenManager.saveSessionId(-1)
                                 }
 
@@ -889,9 +938,38 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                                 refreshStats()
                                 isSessionActive = false
                                 isLoading = false
-                                Toast.makeText(context, "Sesja zakończona. Dzień dobry!", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Sesja zakończona pomyślnie!", Toast.LENGTH_SHORT).show()
                             }
-                        } else {
+                        },
+                        modifier = Modifier.fillMaxWidth().height(62.dp),
+                        shape = RoundedCornerShape(22.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = SleepThemeSuccess, contentColor = Color(0xFF07140C)),
+                        enabled = !isLoading
+                    ) { Text("Wstałem — zakończ sesję", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Użytkownik decyduje się na kapitulację wprost z ekranu głównego (wbudowany cooldown i straty)
+                    OutlinedButton(
+                        onClick = { handleSurrender() },
+                        modifier = Modifier.fillMaxWidth().height(54.dp),
+                        shape = RoundedCornerShape(22.dp),
+                        border = BorderStroke(1.dp, SleepThemeError.copy(alpha = 0.5f)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = SleepThemeError),
+                        enabled = !isLoading
+                    ) { Text("Poddaję się (-1 Serce)", style = MaterialTheme.typography.titleMedium) }
+
+                } else {
+                    Button(
+                        onClick = {
+                            val offlineManager = OfflineSyncManager(context)
+
+                            // Weryfikacja blokady czasowej (Cooldown), zapobiegająca farmowaniu sesji/kar
+                            if (!offlineManager.canStartNewSession()) {
+                                Toast.makeText(context, "Musisz odczekać przed kolejną sesją!", Toast.LENGTH_LONG).show()
+                                return@Button
+                            }
+
                             isLoading = true
                             coroutineScope.launch {
                                 val token = "Bearer ${tokenManager.getToken()}"
@@ -902,10 +980,8 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                                 } catch (_: Exception) {
                                     offlineManager.startOfflineSession(sleepTime, wakeTime)
                                     tokenManager.saveSessionId(-2)
-                                    Toast.makeText(context, "Brak sieci. Start w trybie offline.", Toast.LENGTH_SHORT).show()
                                 } finally {
                                     isSessionActive = true
-
                                     when (selectedMode) {
                                         "Narastająca Kurtyna" -> {
                                             if (!Settings.canDrawOverlays(context)) {
@@ -921,38 +997,22 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                                     isLoading = false
                                 }
                             }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth().height(62.dp).padding(bottom = 8.dp),
-                    shape = RoundedCornerShape(22.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isSessionActive) SleepThemeSuccess else MaterialTheme.colorScheme.primary,
-                        contentColor = if (isSessionActive) Color(0xFF07140C) else MaterialTheme.colorScheme.onPrimary
-                    ),
-                    enabled = !isLoading
-                ) {
-                    Text(
-                        text = if (isSessionActive) "Wstałem — zakończ sesję" else "Start",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
+                        },
+                        modifier = Modifier.fillMaxWidth().height(62.dp),
+                        shape = RoundedCornerShape(22.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
+                        enabled = !isLoading
+                    ) { Text("Start", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(16.dp))
             }
         }
 
         if (isLoading) {
-            Box(
-                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.28f)),
-                contentAlignment = Alignment.Center
-            ) {
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.28f)), contentAlignment = Alignment.Center) {
                 Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.padding(22.dp).size(44.dp),
-                        strokeWidth = 4.dp,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    CircularProgressIndicator(modifier = Modifier.padding(22.dp).size(44.dp), strokeWidth = 4.dp, color = MaterialTheme.colorScheme.primary)
                 }
             }
         }

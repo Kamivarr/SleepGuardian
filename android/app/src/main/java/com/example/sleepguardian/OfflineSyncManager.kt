@@ -5,6 +5,9 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * Represents a penalty registered when the device was offline but an active server session existed.
@@ -18,18 +21,38 @@ data class StandalonePenalty(val sessionId: Int, val penaltyType: String)
 data class OfflineFullSession(val sleepTime: String, val wakeTime: String, val penalties: List<String>)
 
 /**
- * Manages the local persistence and synchronization of sleep sessions and penalty logs.
- * Ensures the application remains fully functional in offline environments (Local-First architecture).
+ * Manages local persistence for offline functionality and gamification rules.
+ * Implements anti-farming constraints and ensures Local-First UI responsiveness.
  */
 class OfflineSyncManager(context: Context) {
     private val prefs = context.getSharedPreferences("sleepguardian_offline", Context.MODE_PRIVATE)
     private val gson = Gson()
 
-    // --- OFFLINE SESSION MANAGEMENT (When starting the app without network) ---
+    // --- ANTI-FARMING & SESSION CONTROLS ---
 
     /**
-     * Initializes a local tracking session when the server is unreachable.
+     * Checks if the user is allowed to start a new session.
+     * Prevents farming hearts by enforcing a cooldown period between sessions.
      */
+    fun canStartNewSession(): Boolean {
+        val lastEnd = prefs.getLong("last_session_end_timestamp", 0L)
+        val currentTime = System.currentTimeMillis()
+
+        // TODO na produkcję: Zmień 15_000L (15 s) na 12 * 60 * 60 * 1000L (12 godzin)
+        val cooldownMs = 15_000L
+
+        return (currentTime - lastEnd) > cooldownMs
+    }
+
+    /**
+     * Records the exact time a session was terminated to enforce future cooldowns.
+     */
+    fun recordSessionEnd() {
+        prefs.edit().putLong("last_session_end_timestamp", System.currentTimeMillis()).apply()
+    }
+
+    // --- OFFLINE SESSION LOGIC ---
+
     fun startOfflineSession(sleepTime: String, wakeTime: String) {
         prefs.edit()
             .putString("active_off_sleep", sleepTime)
@@ -38,9 +61,6 @@ class OfflineSyncManager(context: Context) {
             .apply()
     }
 
-    /**
-     * Appends a discipline violation to the currently active offline session.
-     */
     fun addPenaltyToActiveOfflineSession(penalty: String) {
         val json = prefs.getString("active_off_penalties", "[]")
         val type = object : TypeToken<List<String>>() {}.type
@@ -50,13 +70,9 @@ class OfflineSyncManager(context: Context) {
         prefs.edit().putString("active_off_penalties", gson.toJson(list)).apply()
     }
 
-    /**
-     * Finalizes the active offline session and queues it for bulk server synchronization.
-     */
     fun endOfflineSessionAndQueue() {
         val sleep = prefs.getString("active_off_sleep", "22:00") ?: "22:00"
         val wake = prefs.getString("active_off_wake", "06:00") ?: "06:00"
-
         val pJson = prefs.getString("active_off_penalties", "[]")
         val pType = object : TypeToken<List<String>>() {}.type
         val penalties: List<String> = gson.fromJson(pJson, pType) ?: emptyList()
@@ -72,7 +88,7 @@ class OfflineSyncManager(context: Context) {
             .apply()
     }
 
-    // --- QUEUE MANAGEMENT (When network drops during an active server session) ---
+    // --- QUEUE MANAGEMENT ---
 
     private fun getQueuedFullSessions(): List<OfflineFullSession> {
         val json = prefs.getString("queued_full_sessions", "[]")
@@ -80,9 +96,6 @@ class OfflineSyncManager(context: Context) {
         return gson.fromJson(json, type) ?: emptyList()
     }
 
-    /**
-     * Queues a penalty for an active server session when a network timeout occurs.
-     */
     fun queueStandalonePenalty(sessionId: Int, penalty: String) {
         val queued = getQueuedStandalonePenalties().toMutableList()
         queued.add(StandalonePenalty(sessionId, penalty))
@@ -95,9 +108,6 @@ class OfflineSyncManager(context: Context) {
         return gson.fromJson(json, type) ?: emptyList()
     }
 
-    /**
-     * Queues a session termination request if the user wakes up offline.
-     */
     fun queueStandaloneEnd(sessionId: Int) {
         val queued = getQueuedStandaloneEnds().toMutableList()
         queued.add(sessionId)
@@ -112,14 +122,8 @@ class OfflineSyncManager(context: Context) {
 
     // --- CORE SYNCHRONIZATION ENGINE ---
 
-    /**
-     * Sequentially attempts to upload all queued offline data to the backend API.
-     * Retains unsynced payloads in local storage if network failures persist.
-     * * TODO: Implement WorkManager for periodic background syncing if the queue grows too large.
-     */
     suspend fun syncAll(token: String) {
         withContext(Dispatchers.IO) {
-            // 1. Sync isolated penalties
             val standalonePenalties = getQueuedStandalonePenalties()
             val successfulPenalties = mutableListOf<StandalonePenalty>()
             for (p in standalonePenalties) {
@@ -133,7 +137,6 @@ class OfflineSyncManager(context: Context) {
                 prefs.edit().putString("queued_standalone_penalties", gson.toJson(remaining)).apply()
             }
 
-            // 2. Sync isolated session terminations
             val standaloneEnds = getQueuedStandaloneEnds()
             val successfulEnds = mutableListOf<Int>()
             for (eId in standaloneEnds) {
@@ -147,7 +150,6 @@ class OfflineSyncManager(context: Context) {
                 prefs.edit().putString("queued_standalone_ends", gson.toJson(remaining)).apply()
             }
 
-            // 3. Sync full offline sessions (Start -> Penalties -> End)
             val fullSessions = getQueuedFullSessions()
             val successfulFullSessions = mutableListOf<OfflineFullSession>()
             for (fs in fullSessions) {
@@ -167,6 +169,9 @@ class OfflineSyncManager(context: Context) {
             }
         }
     }
+
+    // --- GAMIFICATION LOCAL-FIRST LOGIC ---
+
     fun saveCachedStats(streak: Int, hearts: Int) {
         prefs.edit()
             .putInt("cached_streak", streak)
@@ -174,11 +179,45 @@ class OfflineSyncManager(context: Context) {
             .apply()
     }
 
-    fun getCachedStreak(): Int {
-        return prefs.getInt("cached_streak", 0)
+    fun getCachedStreak(): Int = prefs.getInt("cached_streak", 0)
+    fun getCachedHearts(): Int = prefs.getInt("cached_hearts", 3)
+
+    /**
+     * Optimistically updates local state for a successful session.
+     * Ensures user gains max 1 heart and 1 streak point per calendar day.
+     */
+    fun recordSuccessfulSession() {
+        val currentHearts = getCachedHearts()
+        val currentStreak = getCachedStreak()
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        val lastSuccessDate = prefs.getString("last_success_date", "")
+
+        val newStreak = if (lastSuccessDate != today) {
+            prefs.edit().putString("last_success_date", today).apply()
+            currentStreak + 1
+        } else {
+            currentStreak
+        }
+
+        saveCachedStats(newStreak, minOf(3, currentHearts + 1))
     }
 
-    fun getCachedHearts(): Int {
-        return prefs.getInt("cached_hearts", 3)
+    /**
+     * Optimistically processes a penalty.
+     * Streak is ALWAYS broken upon failure. Heart loss is limited to 1 per calendar day.
+     */
+    fun recordFailedSession() {
+        val currentHearts = getCachedHearts()
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        val lastPenaltyDate = prefs.getString("last_penalty_date", "")
+
+        val newHearts = if (lastPenaltyDate != today) {
+            prefs.edit().putString("last_penalty_date", today).apply()
+            maxOf(0, currentHearts - 1)
+        } else {
+            currentHearts
+        }
+
+        saveCachedStats(0, newHearts)
     }
 }

@@ -27,7 +27,7 @@ import kotlinx.coroutines.launch
 
 /**
  * Foreground service responsible for rendering the system-level overlay (Curtain).
- * Allows users to manually abort the session at the cost of a negative opinion/heart.
+ * Forces users to surrender via "Poddaję się" to regain device control, resulting in an immediate session abort.
  */
 class CurtainService : Service() {
 
@@ -137,7 +137,7 @@ class CurtainService : Service() {
         }
 
         val unlockButton = Button(this).apply {
-            text = "ZAKOŃCZ SESJĘ (KOSZTUJE SERCE)"
+            text = "PODDAJĘ SIĘ, JESTEM MIĘKKI JAK MIĘCZAK"
             setTextColor(Color.parseColor("#FF5252"))
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
@@ -147,7 +147,7 @@ class CurtainService : Service() {
             }
             setPadding(64, 32, 64, 32)
             setOnClickListener {
-                abortSessionWithNegativeOpinion("Narastająca Kurtyna (Awaryjne przerwanie)")
+                abortSessionWithNegativeOpinion("Narastająca Kurtyna (Poddanie się)")
             }
         }
 
@@ -166,10 +166,6 @@ class CurtainService : Service() {
         }
     }
 
-    /**
-     * Terminates the current session completely, marks it as negatively aborted in local history,
-     * processes the penalty via OfflineSyncManager, and notifies the UI to update.
-     */
     private fun abortSessionWithNegativeOpinion(penaltyType: String) {
         val tokenManager = TokenManager(applicationContext)
         val token = tokenManager.getToken()
@@ -178,6 +174,9 @@ class CurtainService : Service() {
 
         val prefs = applicationContext.getSharedPreferences("sleepguardian_prefs", Context.MODE_PRIVATE)
         prefs.edit().putBoolean("negative_session_$sessionId", true).apply()
+
+        offlineManager.recordFailedSession()
+        offlineManager.recordSessionEnd()
 
         if (token != null) {
             CoroutineScope(Dispatchers.IO).launch {
@@ -195,7 +194,10 @@ class CurtainService : Service() {
                 }
                 tokenManager.saveSessionId(-1)
 
-                sendBroadcast(Intent("com.example.sleepguardian.SESSION_ABORTED"))
+                val intent = Intent("com.example.sleepguardian.SESSION_ABORTED").apply {
+                    setPackage(applicationContext.packageName)
+                }
+                sendBroadcast(intent)
                 stopSelf()
             }
         } else {
