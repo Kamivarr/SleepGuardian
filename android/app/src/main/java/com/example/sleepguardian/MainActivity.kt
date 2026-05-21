@@ -18,6 +18,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -25,23 +26,25 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.WbSunny
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -55,15 +58,11 @@ import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.launch
 import java.util.Calendar
 
-/**
- * Main entry point of the SleepGuardian application.
- * Initializes the Jetpack Compose environment and applies the Material Design 3 theme.
- */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
+            SleepGuardianTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -75,10 +74,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/**
- * Core composable orchestrating the application's navigation graph.
- * Determines the initial destination based on user authentication status.
- */
 @Composable
 fun SleepGuardianApp() {
     val navController = rememberNavController()
@@ -95,10 +90,83 @@ fun SleepGuardianApp() {
     }
 }
 
-/**
- * Provides the user interface for authentication.
- * Handles credential input, API login requests, and secure token storage upon success.
- */
+@Composable
+private fun BackgroundGradient() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFF2B1549).copy(alpha = 0.95f),
+                        SleepThemeBackground
+                    ),
+                    radius = 1400f
+                )
+            )
+    )
+}
+
+@Composable
+private fun NeonTitle(title: String, subtitle: String? = null) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.headlineLarge,
+            color = MaterialTheme.colorScheme.onBackground,
+            fontWeight = FontWeight.Bold
+        )
+        if (subtitle != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+private fun SectionCard(content: @Composable ColumnScope.() -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(1.dp, Color(0xFF4A3B63))
+    ) {
+        Column(modifier = Modifier.padding(20.dp), content = content)
+    }
+}
+
+@Composable
+private fun MetricPill(
+    icon: ImageVector,
+    label: String,
+    value: String,
+    tint: Color,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.height(52.dp),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f),
+        border = BorderStroke(1.dp, tint.copy(alpha = 0.42f))
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(icon, contentDescription = label, tint = tint)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(value, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
 @Composable
 fun LoginScreen(navController: NavController, tokenManager: TokenManager) {
     var email by remember { mutableStateOf(tokenManager.getSavedEmail()) }
@@ -108,119 +176,159 @@ fun LoginScreen(navController: NavController, tokenManager: TokenManager) {
     val coroutineScope = rememberCoroutineScope()
 
     Box(modifier = Modifier.fillMaxSize()) {
+        BackgroundGradient()
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .systemBarsPadding()
-                .padding(32.dp),
+                .padding(horizontal = 24.dp, vertical = 28.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Icon(
-                imageVector = Icons.Default.Bedtime,
-                contentDescription = "Logo",
-                modifier = Modifier.size(80.dp),
-                tint = MaterialTheme.colorScheme.primary
-            )
-            Spacer(modifier = Modifier.height(16.dp))
+            Surface(
+                shape = RoundedCornerShape(28.dp),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Bedtime,
+                    contentDescription = "Logo",
+                    modifier = Modifier.padding(18.dp).size(72.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
             Text(
                 text = "SleepGuardian",
                 style = MaterialTheme.typography.headlineLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onBackground
             )
-            Spacer(modifier = Modifier.height(48.dp))
-
-            OutlinedTextField(
-                value = email,
-                onValueChange = { email = it },
-                label = { Text("E-mail") },
-                leadingIcon = { Icon(Icons.Default.Email, contentDescription = "Email Icon") },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                singleLine = true,
-                enabled = !isLoading
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Zadbaj o sen z odrobiną magii i dyscypliny.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(36.dp))
 
-            OutlinedTextField(
-                value = password,
-                onValueChange = { password = it },
-                label = { Text("Hasło") },
-                visualTransformation = PasswordVisualTransformation(),
-                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = "Password Icon") },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                singleLine = true,
-                enabled = !isLoading
-            )
+            SectionCard {
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = { email = it },
+                    label = { Text("E-mail") },
+                    leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    singleLine = true,
+                    enabled = !isLoading,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        focusedLabelColor = MaterialTheme.colorScheme.primary,
+                        cursorColor = MaterialTheme.colorScheme.primary
+                    )
+                )
 
-            Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-            Button(
-                onClick = {
-                    if (email.isBlank() || password.isBlank()) {
-                        statusMessage = "Wypełnij wszystkie pola."
-                        return@Button
-                    }
-                    isLoading = true
-                    statusMessage = ""
-                    coroutineScope.launch {
-                        try {
-                            val request = LoginRequest(email, password)
-                            val response = RetrofitClient.apiService.login(request)
-                            tokenManager.saveToken(response.token)
-                            tokenManager.saveCredentials(email, password)
-                            navController.navigate("dashboard") {
-                                popUpTo("login") { inclusive = true }
-                            }
-                        } catch (e: Exception) {
-                            statusMessage = "Błąd logowania. Sprawdź dane."
-                            // TODO: Differentiate between 401 Unauthorized and network timeouts
-                        } finally {
-                            isLoading = false
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("Hasło") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    singleLine = true,
+                    enabled = !isLoading,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        focusedLabelColor = MaterialTheme.colorScheme.primary,
+                        cursorColor = MaterialTheme.colorScheme.primary
+                    )
+                )
+
+                Spacer(modifier = Modifier.height(22.dp))
+
+                Button(
+                    onClick = {
+                        if (email.isBlank() || password.isBlank()) {
+                            statusMessage = "Wypełnij wszystkie pola."
+                            return@Button
                         }
-                    }
-                },
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = RoundedCornerShape(16.dp),
-                enabled = !isLoading
-            ) {
-                Text("Zaloguj się", style = MaterialTheme.typography.titleMedium)
-            }
+                        isLoading = true
+                        statusMessage = ""
+                        coroutineScope.launch {
+                            try {
+                                val request = LoginRequest(email, password)
+                                val response = RetrofitClient.apiService.login(request)
+                                tokenManager.saveToken(response.token)
+                                tokenManager.saveCredentials(email, password)
+                                navController.navigate("dashboard") {
+                                    popUpTo("login") { inclusive = true }
+                                }
+                            } catch (_: Exception) {
+                                statusMessage = "Błąd logowania. Sprawdź dane lub połączenie."
+                            } finally {
+                                isLoading = false
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(58.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    enabled = !isLoading,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                ) {
+                    Text("Zaloguj się", style = MaterialTheme.typography.titleMedium)
+                }
 
-            Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-            TextButton(onClick = { navController.navigate("register") }, enabled = !isLoading) {
-                Text("Nie masz konta? Zarejestruj się", color = MaterialTheme.colorScheme.secondary)
-            }
+                TextButton(
+                    onClick = { navController.navigate("register") },
+                    enabled = !isLoading,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Nie masz konta? Zarejestruj się")
+                }
 
-            if (statusMessage.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(text = statusMessage, color = MaterialTheme.colorScheme.error)
+                AnimatedVisibility(visible = statusMessage.isNotEmpty()) {
+                    Text(
+                        text = statusMessage,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
             }
         }
 
-        // Blocking loading overlay during network operations
         if (isLoading) {
             Box(
-                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.12f)),
+                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.28f)),
                 contentAlignment = Alignment.Center
             ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(48.dp),
-                    strokeWidth = 4.dp,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.padding(22.dp).size(44.dp),
+                        strokeWidth = 4.dp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
         }
     }
 }
 
-/**
- * Provides the user interface for creating a new account.
- */
 @Composable
 fun RegisterScreen(navController: NavController) {
     var email by remember { mutableStateOf("") }
@@ -230,91 +338,94 @@ fun RegisterScreen(navController: NavController) {
     val coroutineScope = rememberCoroutineScope()
 
     Box(modifier = Modifier.fillMaxSize()) {
+        BackgroundGradient()
+
         Column(
-            modifier = Modifier.fillMaxSize().systemBarsPadding().padding(32.dp),
+            modifier = Modifier.fillMaxSize().systemBarsPadding().padding(24.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(
-                text = "Dołącz do nas",
-                style = MaterialTheme.typography.headlineLarge,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(48.dp))
+            NeonTitle("Dołącz do nas", "Stwórz konto i odpal nocny tryb kontroli snu.")
+            Spacer(modifier = Modifier.height(30.dp))
 
-            OutlinedTextField(
-                value = email,
-                onValueChange = { email = it },
-                label = { Text("E-mail") },
-                leadingIcon = { Icon(Icons.Default.Email, contentDescription = "Email Icon") },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                singleLine = true,
-                enabled = !isLoading
-            )
+            SectionCard {
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = { email = it },
+                    label = { Text("E-mail") },
+                    leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    singleLine = true,
+                    enabled = !isLoading
+                )
 
-            Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-            OutlinedTextField(
-                value = password,
-                onValueChange = { password = it },
-                label = { Text("Hasło (min. 8 znaków)") },
-                visualTransformation = PasswordVisualTransformation(),
-                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = "Password Icon") },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                singleLine = true,
-                enabled = !isLoading
-            )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("Hasło (min. 8 znaków)") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    singleLine = true,
+                    enabled = !isLoading
+                )
 
-            Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(22.dp))
 
-            Button(
-                onClick = {
-                    if (email.isBlank() || password.isBlank()) {
-                        statusMessage = "Wypełnij wszystkie pola."
-                        return@Button
-                    }
-                    isLoading = true
-                    statusMessage = ""
-                    coroutineScope.launch {
-                        try {
-                            val request = LoginRequest(email, password)
-                            val response = RetrofitClient.apiService.register(request)
-                            statusMessage = response.message
-                        } catch (e: Exception) {
-                            statusMessage = "Błąd: Ten e-mail może być już zajęty."
-                        } finally {
-                            isLoading = false
+                Button(
+                    onClick = {
+                        if (email.isBlank() || password.isBlank()) {
+                            statusMessage = "Wypełnij wszystkie pola."
+                            return@Button
                         }
-                    }
-                },
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = RoundedCornerShape(16.dp),
-                enabled = !isLoading
-            ) {
-                Text("Utwórz konto", style = MaterialTheme.typography.titleMedium)
-            }
+                        isLoading = true
+                        statusMessage = ""
+                        coroutineScope.launch {
+                            try {
+                                val request = LoginRequest(email, password)
+                                val response = RetrofitClient.apiService.register(request)
+                                statusMessage = response.message
+                            } catch (_: Exception) {
+                                statusMessage = "Błąd: ten e-mail może być już zajęty."
+                            } finally {
+                                isLoading = false
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(58.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    enabled = !isLoading
+                ) {
+                    Text("Utwórz konto", style = MaterialTheme.typography.titleMedium)
+                }
 
-            Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-            TextButton(onClick = { navController.popBackStack() }, enabled = !isLoading) {
-                Text("Wróć do logowania", color = MaterialTheme.colorScheme.secondary)
-            }
+                TextButton(onClick = { navController.popBackStack() }, enabled = !isLoading) {
+                    Text("Wróć do logowania")
+                }
 
-            if (statusMessage.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(text = statusMessage, color = MaterialTheme.colorScheme.primary)
+                AnimatedVisibility(visible = statusMessage.isNotEmpty()) {
+                    Text(
+                        text = statusMessage,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
             }
         }
 
         if (isLoading) {
             Box(
-                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.12f)),
+                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.28f)),
                 contentAlignment = Alignment.Center
             ) {
                 CircularProgressIndicator(
-                    modifier = Modifier.size(48.dp),
+                    modifier = Modifier.size(44.dp),
                     strokeWidth = 4.dp,
                     color = MaterialTheme.colorScheme.primary
                 )
@@ -323,11 +434,6 @@ fun RegisterScreen(navController: NavController) {
     }
 }
 
-/**
- * Screen dedicated to fetching and displaying historical sleep sessions.
- * Highlights sessions that were forcefully aborted due to user non-compliance.
- * * TODO: Implement local caching for this screen to ensure offline availability of history.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryScreen(navController: NavController, tokenManager: TokenManager) {
@@ -345,7 +451,7 @@ fun HistoryScreen(navController: NavController, tokenManager: TokenManager) {
                     val response = RetrofitClient.apiService.getHistory("Bearer $token")
                     historyList = response.history
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 errorMessage = "Nie udało się pobrać historii. Jesteś offline?"
             } finally {
                 isLoading = false
@@ -356,7 +462,7 @@ fun HistoryScreen(navController: NavController, tokenManager: TokenManager) {
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("Historia Sesji", fontWeight = FontWeight.Medium) },
+                title = { Text("Historia sesji", fontWeight = FontWeight.SemiBold) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Wstecz")
@@ -366,49 +472,70 @@ fun HistoryScreen(navController: NavController, tokenManager: TokenManager) {
             )
         }
     ) { innerPadding ->
-        Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
-            if (isLoading) {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-            } else if (errorMessage.isNotEmpty()) {
-                Text(text = errorMessage, color = MaterialTheme.colorScheme.error, modifier = Modifier.align(Alignment.Center))
-            } else if (historyList.isEmpty()) {
-                Text(text = "Brak zarejestrowanych sesji snu.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.align(Alignment.Center))
-            } else {
-                LazyColumn(
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .background(MaterialTheme.colorScheme.background)
+        ) {
+            when {
+                isLoading -> CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = MaterialTheme.colorScheme.primary)
+                errorMessage.isNotEmpty() -> Text(
+                    text = errorMessage,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+                historyList.isEmpty() -> Text(
+                    text = "Brak zarejestrowanych sesji snu.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+                else -> LazyColumn(
                     modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
                     contentPadding = PaddingValues(vertical = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(historyList) { session ->
+                        val dateStr = session.start_time?.take(10) ?: "Nieznana data"
+                        val prefs = context.getSharedPreferences("sleepguardian_prefs", Context.MODE_PRIVATE)
+                        val isNegative = prefs.getBoolean("negative_session_${session.id}", false)
+
+                        val statusText = when {
+                            isNegative -> "Zakończona negatywnie"
+                            session.end_time != null -> "Zakończona pomyślnie"
+                            else -> "Niezakończona"
+                        }
+                        val statusColor = when {
+                            isNegative -> SleepThemeError
+                            session.end_time != null -> SleepThemeSuccess
+                            else -> SleepThemeWarning
+                        }
+
                         Card(
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                            elevation = CardDefaults.cardElevation(0.dp)
+                            shape = RoundedCornerShape(24.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)),
+                            elevation = CardDefaults.cardElevation(0.dp),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                         ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                val dateStr = session.start_time?.take(10) ?: "Nieznana data"
-                                Text(text = "Sesja z dnia: $dateStr", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            Column(modifier = Modifier.padding(18.dp)) {
+                                Text(
+                                    text = dateStr,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold
+                                )
                                 Spacer(modifier = Modifier.height(8.dp))
-                                Text(text = "Cel snu: ${session.target_sleep_time} - ${session.target_wake_time}", style = MaterialTheme.typography.bodyMedium)
-
-                                // LOGIC: Evaluate Negative Session Status
-                                val prefs = context.getSharedPreferences("sleepguardian_prefs", Context.MODE_PRIVATE)
-                                val isNegative = prefs.getBoolean("negative_session_${session.id}", false)
-
-                                val statusText = when {
-                                    isNegative -> "Zakończona negatywnie (Przerwana)"
-                                    session.end_time != null -> "Zakończona pomyślnie"
-                                    else -> "Niezakończona"
-                                }
-                                val statusColor = when {
-                                    isNegative -> Color(0xFFD32F2F) // Red for penalty
-                                    session.end_time != null -> Color(0xFF4CAF50) // Green for success
-                                    else -> Color(0xFFFF9800) // Orange for pending/unknown
-                                }
-
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(text = "Status: $statusText", style = MaterialTheme.typography.bodySmall, color = statusColor, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    text = "Cel snu: ${session.target_sleep_time} - ${session.target_wake_time}",
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Status: $statusText",
+                                    color = statusColor,
+                                    fontWeight = FontWeight.SemiBold
+                                )
                             }
                         }
                     }
@@ -418,10 +545,6 @@ fun HistoryScreen(navController: NavController, tokenManager: TokenManager) {
     }
 }
 
-/**
- * Main dashboard view for configuring sleep schedules and executing hardware penalties.
- * Manages State-Driven UI, offline telemetry synchronization, and background abort broadcasts.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
@@ -431,59 +554,41 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
     var sleepTime by remember { mutableStateOf("22:00") }
     var wakeTime by remember { mutableStateOf("06:00") }
     var isLoading by remember { mutableStateOf(false) }
-
     var currentStreak by remember { mutableIntStateOf(0) }
     var heartsRemaining by remember { mutableIntStateOf(0) }
-
     var isSessionActive by remember { mutableStateOf(tokenManager.getSessionId() != -1) }
 
-    // Definition mapping for hardware-level sleep enforcement modes
-    data class ModeDef(val name: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val desc: String)
+    data class ModeDef(val name: String, val icon: ImageVector, val desc: String)
     val rigourModes = listOf(
         ModeDef("Narastająca Kurtyna", Icons.Default.VisibilityOff, "Zasłania ekran"),
         ModeDef("Test Kamienia", Icons.Default.Smartphone, "Wykrywa ruch"),
         ModeDef("Upierdliwy Komar", Icons.Default.NotificationsActive, "Dźwięk ostrzegawczy"),
         ModeDef("Latarnia Morska", Icons.Default.FlashlightOn, "Stroboskop LED")
     )
-    var selectedMode by remember { mutableStateOf(rigourModes[0].name) }
+    var selectedMode by remember { mutableStateOf(rigourModes.first().name) }
 
-    /**
-     * Refreshes gamification metrics (Streak & Hearts).
-     * Automatically attempts to sync locally cached penalties to the server before fetching.
-     */
     fun refreshStats() {
         coroutineScope.launch {
             val offlineManager = OfflineSyncManager(context)
-
-            // 1. Optimistic UI: Load cached stats immediately
             currentStreak = offlineManager.getCachedStreak()
             heartsRemaining = offlineManager.getCachedHearts()
 
             try {
                 val token = tokenManager.getToken()
                 if (token != null) {
-                    // 2. Sync queued offline data with the server
                     offlineManager.syncAll(token)
-
-                    // 3. Fetch latest metrics
                     val stats = RetrofitClient.apiService.getStats("Bearer $token")
-
                     currentStreak = stats.current_streak
                     heartsRemaining = stats.hearts
                     offlineManager.saveCachedStats(stats.current_streak, stats.hearts)
                 }
-            } catch (e: Exception) {
-                // Fails silently if offline; UI retains cached states
-                e.printStackTrace()
+            } catch (_: Exception) {
             }
         }
     }
 
-    LaunchedEffect(Unit) {
-        refreshStats()
-    }
+    LaunchedEffect(Unit) { refreshStats() }
 
-    // Listens for external broadcast events triggered when background penalty services abort a session
     DisposableEffect(Unit) {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(c: Context?, intent: Intent?) {
@@ -515,30 +620,41 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        BackgroundGradient()
+
         Scaffold(
+            containerColor = Color.Transparent,
             topBar = {
                 CenterAlignedTopAppBar(
-                    title = { Text(if (isSessionActive) "Trwa Sesja Snu" else "Profil Snu", fontWeight = FontWeight.Medium) },
+                    title = {
+                        Text(
+                            if (isSessionActive) "Trwa sesja snu" else "Profil snu",
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    },
                     navigationIcon = {
                         if (!isSessionActive) {
                             IconButton(onClick = { navController.navigate("history") }) {
-                                Icon(Icons.Default.History, contentDescription = "Historia Sesji", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Icon(Icons.Default.History, contentDescription = "Historia sesji")
                             }
                         }
                     },
                     actions = {
                         if (!isSessionActive) {
-                            IconButton(
-                                onClick = {
-                                    tokenManager.clearToken()
-                                    navController.navigate("login") { popUpTo(0) { inclusive = true } }
-                                }
-                            ) {
-                                Icon(imageVector = Icons.Default.ExitToApp, contentDescription = "Wyloguj", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            IconButton(onClick = {
+                                tokenManager.clearToken()
+                                navController.navigate("login") { popUpTo(0) { inclusive = true } }
+                            }) {
+                                Icon(Icons.Default.ExitToApp, contentDescription = "Wyloguj")
                             }
                         }
                     },
-                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = MaterialTheme.colorScheme.background)
+                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                        containerColor = Color.Transparent,
+                        titleContentColor = MaterialTheme.colorScheme.onBackground,
+                        navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+                        actionIconContentColor = MaterialTheme.colorScheme.onBackground
+                    )
                 )
             }
         ) { innerPadding ->
@@ -546,143 +662,154 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
-                    .padding(horizontal = 24.dp),
+                    .padding(horizontal = 20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // --- GAMIFICATION STATUS BAR ---
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = Color(0xFFFFF3E0),
-                        modifier = Modifier.weight(1f).height(48.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxSize(),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.LocalFireDepartment, contentDescription = "Streak", tint = Color(0xFFFF9800))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "$currentStreak Dni",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFFE65100)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.width(16.dp))
-
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = Color(0xFFFFEBEE),
-                        modifier = Modifier.weight(1f).height(48.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxSize(),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.Favorite, contentDescription = "Serca", tint = Color(0xFFE53935))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "$heartsRemaining",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFFC62828)
-                            )
-                        }
-                    }
+                    MetricPill(
+                        icon = Icons.Default.LocalFireDepartment,
+                        label = "Streak",
+                        value = "$currentStreak dni",
+                        tint = SleepThemeWarning,
+                        modifier = Modifier.weight(1f)
+                    )
+                    MetricPill(
+                        icon = Icons.Default.Favorite,
+                        label = "Serca",
+                        value = "$heartsRemaining",
+                        tint = SleepThemeError,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // --- CONFIGURATION MODE UI ---
                 AnimatedVisibility(
                     visible = !isSessionActive,
-                    enter = fadeIn() + slideInVertically(),
-                    exit = fadeOut() + slideOutVertically()
+                    enter = fadeIn() + slideInVertically(initialOffsetY = { it / 3 }),
+                    exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 3 })
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(24.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                            elevation = CardDefaults.cardElevation(0.dp)
-                        ) {
-                            Column(modifier = Modifier.padding(24.dp)) {
-                                Text("Harmonogram", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                                Spacer(modifier = Modifier.height(20.dp))
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.Bedtime, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
-                                        Spacer(modifier = Modifier.width(12.dp))
-                                        Text("Sennność: $sleepTime", style = MaterialTheme.typography.bodyLarge)
+                    Column {
+                        SectionCard {
+                            Text(
+                                "Harmonogram",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Bedtime, contentDescription = null, tint = SleepThemeAccent)
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text("Sennność", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(sleepTime, style = MaterialTheme.typography.titleMedium)
                                     }
-                                    TextButton(onClick = { showTimePicker { sleepTime = it } }) { Text("Edytuj") }
                                 }
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.WbSunny, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
-                                        Spacer(modifier = Modifier.width(12.dp))
-                                        Text("Pobudka: $wakeTime", style = MaterialTheme.typography.bodyLarge)
+                                TextButton(onClick = { showTimePicker { sleepTime = it } }) { Text("Edytuj") }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.WbSunny, contentDescription = null, tint = SleepThemeAccent)
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text("Pobudka", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(wakeTime, style = MaterialTheme.typography.titleMedium)
                                     }
-                                    TextButton(onClick = { showTimePicker { wakeTime = it } }) { Text("Edytuj") }
                                 }
+                                TextButton(onClick = { showTimePicker { wakeTime = it } }) { Text("Edytuj") }
                             }
                         }
 
                         Spacer(modifier = Modifier.height(16.dp))
 
                         Text(
-                            "Metoda Rygoru",
+                            "Metoda rygoru",
                             style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.align(Alignment.Start)
+                            color = MaterialTheme.colorScheme.onBackground,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(start = 4.dp)
                         )
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
 
-                        // Dynamic 2x2 Grid for Mode Selection
                         Column(modifier = Modifier.fillMaxWidth()) {
                             for (i in rigourModes.indices step 2) {
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
                                     for (j in 0..1) {
                                         if (i + j < rigourModes.size) {
                                             val mode = rigourModes[i + j]
                                             val isSelected = selectedMode == mode.name
+                                            val borderColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
 
-                                            OutlinedCard(
+                                            Card(
                                                 onClick = { selectedMode = mode.name },
-                                                modifier = Modifier.weight(1f).aspectRatio(1.1f),
-                                                shape = RoundedCornerShape(20.dp),
-                                                colors = CardDefaults.outlinedCardColors(
-                                                    containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+                                                modifier = Modifier.weight(1f).aspectRatio(1.02f),
+                                                shape = RoundedCornerShape(22.dp),
+                                                colors = CardDefaults.cardColors(
+                                                    containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.95f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
                                                 ),
-                                                border = CardDefaults.outlinedCardBorder(
-                                                    (if (isSelected) 2.dp else 1.dp) != 0.dp
-                                                ).copy(brush = androidx.compose.ui.graphics.SolidColor(if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant))
+                                                border = BorderStroke(
+                                                    width = if (isSelected) 2.dp else 1.dp,
+                                                    color = borderColor
+                                                ),
+                                                elevation = CardDefaults.cardElevation(0.dp)
                                             ) {
                                                 Column(
-                                                    modifier = Modifier.fillMaxSize().padding(12.dp),
+                                                    modifier = Modifier.fillMaxSize().padding(14.dp),
                                                     verticalArrangement = Arrangement.Center,
                                                     horizontalAlignment = Alignment.CenterHorizontally
                                                 ) {
-                                                    Icon(imageVector = mode.icon, contentDescription = mode.name, tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(32.dp))
-                                                    Spacer(modifier = Modifier.height(8.dp))
-                                                    Text(text = mode.name, style = MaterialTheme.typography.bodyMedium, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal, textAlign = TextAlign.Center, color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface)
+                                                    Surface(
+                                                        shape = RoundedCornerShape(16.dp),
+                                                        color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = mode.icon,
+                                                            contentDescription = mode.name,
+                                                            tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                            modifier = Modifier.padding(10.dp).size(26.dp)
+                                                        )
+                                                    }
+                                                    Spacer(modifier = Modifier.height(10.dp))
+                                                    Text(
+                                                        text = mode.name,
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                        textAlign = TextAlign.Center,
+                                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                                    )
                                                     Spacer(modifier = Modifier.height(4.dp))
-                                                    Text(text = mode.desc, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+                                                    Text(
+                                                        text = mode.desc,
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        textAlign = TextAlign.Center
+                                                    )
                                                 }
                                             }
+                                        } else {
+                                            Spacer(modifier = Modifier.weight(1f))
                                         }
                                     }
                                 }
@@ -692,33 +819,38 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                     }
                 }
 
-                // --- ACTIVE SESSION UI ---
                 AnimatedVisibility(
                     visible = isSessionActive,
-                    enter = fadeIn() + slideInVertically { height -> height / 2 },
+                    enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
                     exit = fadeOut()
                 ) {
                     Column(
-                        modifier = Modifier.fillMaxWidth().padding(top = 64.dp),
+                        modifier = Modifier.fillMaxWidth().padding(top = 54.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = "Active",
-                            modifier = Modifier.size(120.dp),
-                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
-                        )
-                        Spacer(modifier = Modifier.height(24.dp))
+                        Surface(
+                            shape = RoundedCornerShape(40.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = "Active",
+                                modifier = Modifier.padding(18.dp).size(92.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(22.dp))
                         Text(
-                            text = "Ochrona Snu Aktywna",
+                            text = "Ochrona snu aktywna",
                             style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onBackground
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Odłóż telefon. Rygor: $selectedMode",
+                            text = "Tryb: $selectedMode",
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -727,33 +859,28 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
 
                 Spacer(modifier = Modifier.weight(1f))
 
-                // --- PRIMARY CALL TO ACTION BUTTON ---
                 Button(
                     onClick = {
                         val offlineManager = OfflineSyncManager(context)
 
                         if (isSessionActive) {
-                            // LOGIC: USER IS AWAKE (END SESSION)
                             isLoading = true
                             coroutineScope.launch {
                                 val token = "Bearer ${tokenManager.getToken()}"
                                 val sessionId = tokenManager.getSessionId()
 
-                                // Handle local vs server-side session closure
                                 if (sessionId == -2) {
                                     offlineManager.endOfflineSessionAndQueue()
                                     tokenManager.saveSessionId(-1)
                                 } else if (sessionId > 0) {
                                     try {
                                         RetrofitClient.apiService.endSession(token, sessionId)
-                                    } catch (e: Exception) {
-                                        // Network unavailable during morning wake-up
+                                    } catch (_: Exception) {
                                         offlineManager.queueStandaloneEnd(sessionId)
                                     }
                                     tokenManager.saveSessionId(-1)
                                 }
 
-                                // Terminate all hardware-level penalty listeners
                                 context.stopService(Intent(context, MosquitoService::class.java))
                                 context.stopService(Intent(context, LighthouseService::class.java))
                                 context.stopService(Intent(context, StoneTestService::class.java))
@@ -765,7 +892,6 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                                 Toast.makeText(context, "Sesja zakończona. Dzień dobry!", Toast.LENGTH_SHORT).show()
                             }
                         } else {
-                            // LOGIC: START SLEEP SESSION
                             isLoading = true
                             coroutineScope.launch {
                                 val token = "Bearer ${tokenManager.getToken()}"
@@ -773,15 +899,13 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                                     val request = StartSessionRequest(sleepTime, wakeTime)
                                     val response = RetrofitClient.apiService.startSession(token, request)
                                     tokenManager.saveSessionId(response.session_id)
-                                } catch (e: Exception) {
-                                    // OFFLINE FALLBACK: Initialize standalone session tracking
+                                } catch (_: Exception) {
                                     offlineManager.startOfflineSession(sleepTime, wakeTime)
-                                    tokenManager.saveSessionId(-2) // Internal flag representing local-only session
-                                    Toast.makeText(context, "Brak sieci. Startujemy w trybie offline.", Toast.LENGTH_SHORT).show()
+                                    tokenManager.saveSessionId(-2)
+                                    Toast.makeText(context, "Brak sieci. Start w trybie offline.", Toast.LENGTH_SHORT).show()
                                 } finally {
                                     isSessionActive = true
 
-                                    // Bootstrap the selected hardware penalty protocol
                                     when (selectedMode) {
                                         "Narastająca Kurtyna" -> {
                                             if (!Settings.canDrawOverlays(context)) {
@@ -799,30 +923,37 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                             }
                         }
                     },
-                    modifier = Modifier.fillMaxWidth().height(64.dp).padding(bottom = 8.dp),
-                    shape = RoundedCornerShape(32.dp),
+                    modifier = Modifier.fillMaxWidth().height(62.dp).padding(bottom = 8.dp),
+                    shape = RoundedCornerShape(22.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isSessionActive) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary
+                        containerColor = if (isSessionActive) SleepThemeSuccess else MaterialTheme.colorScheme.primary,
+                        contentColor = if (isSessionActive) Color(0xFF07140C) else MaterialTheme.colorScheme.onPrimary
                     ),
                     enabled = !isLoading
                 ) {
                     Text(
-                        text = if (isSessionActive) "WSTAŁEM (Zakończ)" else "Zaczynamy",
+                        text = if (isSessionActive) "Wstałem — zakończ sesję" else "Start",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(10.dp))
             }
         }
 
         if (isLoading) {
             Box(
-                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.12f)),
+                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.28f)),
                 contentAlignment = Alignment.Center
             ) {
-                CircularProgressIndicator(modifier = Modifier.size(48.dp), strokeWidth = 4.dp, color = MaterialTheme.colorScheme.primary)
+                Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.padding(22.dp).size(44.dp),
+                        strokeWidth = 4.dp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
         }
     }
