@@ -590,15 +590,23 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
     fun refreshStats() {
         coroutineScope.launch {
             val offlineManager = OfflineSyncManager(context)
-            currentStreak = offlineManager.getCachedStreak()
-            heartsRemaining = offlineManager.getCachedHearts()
 
             try {
                 val token = tokenManager.getToken()
                 if (token != null) {
+                    // 1. Sync local pending actions to server
                     offlineManager.syncAll(token)
+
+                    // 2. IMPORTANT: Force download the absolute truth from the server
+                    offlineManager.updateLocalStatsFromServer(token)
                 }
-            } catch (_: Exception) { }
+            } catch (_: Exception) {
+                // If offline, we fall back to displaying the local cache
+            }
+
+            // Refresh local UI variables after sync
+            currentStreak = offlineManager.getCachedStreak()
+            heartsRemaining = offlineManager.getCachedHearts()
         }
     }
 
@@ -939,6 +947,11 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
                                 val sessionId = tokenManager.getSessionId()
 
                                 offlineManager.recordSuccessfulSession()
+                                Toast.makeText(
+                                    context,
+                                    "Streak: ${offlineManager.getCachedStreak()}",
+                                    Toast.LENGTH_LONG
+                                ).show()
                                 offlineManager.recordSessionEnd()
 
                                 if (sessionId == -2) {

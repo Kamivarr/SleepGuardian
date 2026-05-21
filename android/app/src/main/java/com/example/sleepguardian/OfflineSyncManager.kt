@@ -8,6 +8,7 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.max
 
 /**
  * Represents a penalty registered when the device was offline but an active server session existed.
@@ -190,19 +191,25 @@ class OfflineSyncManager(context: Context) {
     fun recordSuccessfulSession() {
         val currentHearts = getCachedHearts()
         val currentStreak = getCachedStreak()
+
         val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
         val lastSuccessDate = prefs.getString("last_success_date", "")
 
-        val newStreak = if (lastSuccessDate != today) {
-            prefs.edit().putString("last_success_date", today).apply()
-            currentStreak + 1
-        } else {
-            currentStreak // Prevents farming streaks multiple times in a single day
+        val newStreak = when {
+            currentStreak <= 0 -> 1
+
+            lastSuccessDate != today -> currentStreak + 1
+
+            else -> currentStreak
         }
 
-        // Hearts can be restored even multiple times a day (up to max 3)
         val newHearts = minOf(3, currentHearts + 1)
-        saveCachedStats(newStreak, newHearts)
+
+        prefs.edit()
+            .putString("last_success_date", today)
+            .putInt("cached_streak", newStreak)
+            .putInt("cached_hearts", newHearts)
+            .apply()
     }
 
     /**
@@ -223,6 +230,27 @@ class OfflineSyncManager(context: Context) {
             // No hearts left: reset streak to 0, hearts remain 0
             saveCachedStats(0, 0)
             false
+        }
+    }
+
+    /**
+     * Fetches the latest gamification stats from the server and updates the local cache.
+     * Ensures data consistency across multiple devices.
+     */
+    suspend fun updateLocalStatsFromServer(token: String) {
+        try {
+            val stats = RetrofitClient.apiService.getStats("Bearer $token")
+
+            val localStreak = getCachedStreak()
+            val localHearts = getCachedHearts()
+
+            val finalStreak = max(localStreak, stats.current_streak)
+            val finalHearts = max(localHearts, stats.hearts)
+
+            saveCachedStats(finalStreak, finalHearts)
+
+        } catch (e: Exception) {
+            // Offline
         }
     }
 }
