@@ -1,69 +1,32 @@
 # SleepGuardian 🌙
 
-SleepGuardian to natywna aplikacja mobilna na system Android, zaprojektowana w celu walki z nałogowym "scrollowaniem" telefonu w łóżku przed snem. Zamiast standardowej blokady, aplikacja wykorzystuje zaawansowane czujniki urządzenia do wymuszania na użytkowniku fizycznej aktywności, która pomaga przerwać szkodliwy nawyk.
+SleepGuardian to natywna aplikacja mobilna na system Android, zaprojektowana w celu walki z nałogowym "scrollowaniem" telefonu w łóżku przed snem. Zamiast standardowej blokady, aplikacja wykorzystuje zaawansowane czujniki urządzenia do wymuszania na użytkowniku fizycznej aktywności, która pomaga przerwać szkodliwy nawyk i zadbać o higienę snu.
 
-## 🚀 Cel projektu
-Projekt został stworzony w ramach przedmiotu *Projekt Zespołowy Aplikacji Mobilnej (PAM-2026)* na Politechnice Rzeszowskiej. Głównym celem jest wdrożenie kompletnego systemu klient-serwer, który w warunkach zbliżonych do profesjonalnego środowiska IT (CI/CD, Code Review, dokumentacja techniczna) realnie wykorzystuje natywne możliwości fizycznego smartfona.
+## Cel projektu
+Projekt został stworzony w ramach przedmiotu *Projekt Zespołowy Aplikacji Mobilnej (PAM-2026)* na Politechnice Rzeszowskiej. Głównym celem jest wdrożenie kompletnego systemu klient-serwer, który w warunkach profesjonalnego środowiska IT (CI/CD, Code Review, Dokumentacja) realnie wykorzystuje natywne możliwości fizycznego smartfona.
 
-## 🛠 Stos technologiczny
-Projekt realizowany jest w architekturze **monorepo**:
+## Stos technologiczny
+Projekt realizowany jest w rozdzielonej architekturze:
 
-* **Frontend (Android):** Kotlin, Jetpack Compose, Android SDK (Sensors, Camera API, Overlay, Foreground Service).
-* **Backend (API):** Python, FastAPI, PostgreSQL (z obsługą JWT i autoryzacją za pomocą `bcrypt`).
-* **Infrastruktura & DevOps:** Docker, Docker Compose.
-* **Narzędzia:** Git (GitFlow), GitHub Actions (CI/CD), Swagger/OpenAPI.
+* **Frontend (Android):** Kotlin, Jetpack Compose, Retrofit, Android SDK (Sensors, Camera API, System Overlays, Foreground Services, SharedPreferences).
+* **Backend (API):** Python, FastAPI, PostgreSQL (obsługa JWT i hashowanie `bcrypt`). Hosting: **Render**.
+* **Infrastruktura & DevOps:** Git (zgodnie z metodologią pull-requests), GitHub Actions (CI/CD), Swagger/OpenAPI.
 
-## 📱 Główne funkcjonalności
-* **Tryby Rygoru:** Wykorzystanie akcelerometru, latarki, czujnika zbliżeniowego i nakładek systemowych do wymuszania zmiany nawyków.
-* **Synchronizacja z chmurą:** Zapisywanie sesji snu i statystyk w zewnętrznej relacyjnej bazie danych.
-* **Architektura Offline-First:** Możliwość korzystania z aplikacji bez dostępu do sieci (lokalna synchronizacja).
-* **Grywalizacja:** System rankingów i serii dni bez złamania rygoru.
+## Główne funkcjonalności
+* **Zróżnicowane Tryby Rygoru:** Wykorzystanie akcelerometru (wymóg płaskiego odłożenia telefonu), stroboskopu LED, generatora drażniącego dźwięku na kanale Alarmu oraz systemowych nakładek (Draw Overlays).
+* **Architektura Local-First (Offline):** Pełna funkcjonalność aplikacji nawet bez dostępu do sieci. Kary i sesje są buforowane lokalnie i synchronizowane w tle przy ponownym połączeniu.
+* **Grywalizacja i Anty-Farming:** System "serc" i limitowanych dobowo "streaków" zapobiegający oszukiwaniu w aplikacji.
+* **Integracja z chmurą:** Zapis historii snu i statystyk w zewnętrznej bazie danych PostgreSQL.
 
-## 📁 Struktura projektu
+## Struktura projektu
 ```text
 /
 ├── android/               # Projekt aplikacji mobilnej (Kotlin / Android Studio)
-├── backend/               # Serwer API (FastAPI) i plik Dockerfile
+├── backend/               # Kod źródłowy serwera API (FastAPI)
 ├── docs/                  # Dokumentacja techniczna projektu
-├── docker-compose.yml     # Konfiguracja środowiska kontenerowego (Baza + API)
 └── .github/               # Konfiguracja potoków CI/CD (GitHub Actions)
 ```
-## ⚙️ Wymagania systemowe
-
-### Frontend
-* Android Studio *(wersja Hedgehog lub nowsza)*
-* JDK 17+
-
-### Backend
-* Docker
-* Docker Compose *(lokalna instalacja Pythona nie jest wymagana)*
-
----
-
-## 🚀 Uruchomienie projektu (dla programistów)
-
-Projekt wykorzystuje konteneryzację w celu uproszczenia konfiguracji środowiska.
-
-### 1. Uruchomienie backendu i bazy danych
-
-W głównym katalogu projektu uruchom:
-
-```bash
-docker compose up --build -d
-```
-* Serwer API będzie dostępny pod adresem: `http://localhost:8000`
-* Interaktywna dokumentacja (Swagger UI) znajduje się pod adresem: `http://localhost:8000/docs`
-
-> **Wskazówka:** Aby zatrzymać i wyczyścić środowisko (wraz z bazą danych), użyj polecenia: `docker compose down -v`
-
-### 2. Uruchomienie aplikacji mobilnej (Android)
-
-* Otwórz folder `/android` w środowisku Android Studio.
-* Poczekaj na zakończenie synchronizacji narzędzia Gradle.
-
-> **Uwaga dotycząca testów sprzętowych:** Jeśli testujesz aplikację na fizycznym smartfonie podłączonym przez kabel USB/Wi-Fi (wymagane m.in. dla rygoru Latarni Morskiej lub Akcelerometru), przejdź do pliku `ApiService.kt` i zamień adres `10.0.2.2` na lokalny adres IP komputera w sieci Wi-Fi (np. `192.168.1.15`).
-
-## 👥 Zespół projektowy
+## Zespół projektowy
 
 * Mateusz Rudziński (177151)
 * Nikola Słupska (177158)
