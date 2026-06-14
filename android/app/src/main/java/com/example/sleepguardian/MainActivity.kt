@@ -579,7 +579,7 @@ fun DashboardScreen(navController: NavController, tokenManager: TokenManager) {
         ModeDef("Narastająca Kurtyna", Icons.Default.VisibilityOff, "Zasłania ekran"),
         ModeDef("Test Kamienia", Icons.Default.Smartphone, "Wykrywa ruch"),
         ModeDef("Upierdliwy Komar", Icons.Default.NotificationsActive, "Dźwięk ostrzegawczy"),
-        ModeDef("Latarnia Morska", Icons.Default.FlashlightOn, "Stroboskop LED")
+        ModeDef("Latarnia Morska", Icons.Default.WbIncandescent, "Stroboskop LED")
     )
     var selectedMode by remember { mutableStateOf(rigourModes.first().name) }
 
