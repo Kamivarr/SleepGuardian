@@ -26,8 +26,19 @@ Projekt realizowany jest w rozdzielonej architekturze:
 ├── docs/                  # Dokumentacja techniczna projektu
 └── .github/               # Konfiguracja potoków CI/CD (GitHub Actions)
 ```
-## Zespół projektowy
+## Środowisko Backendowe
+Backend jest zdeployowany na zewnętrznym serwerze w chmurze (Render) – nie ma potrzeby lokalnego uruchamiania serwera ani baz danych (Dockera) do pracy nad aplikacją mobilną.
+* **Baza API URL:** [https://sleepguardian-api.onrender.com](https://sleepguardian-api.onrender.com)
+* **Dokumentacja API (Swagger):** [https://sleepguardian-api.onrender.com/docs](https://sleepguardian-api.onrender.com/docs)
 
+
+## Uruchomienie aplikacji mobilnej (Android)
+* Otwórz folder `/android` w środowisku Android Studio.
+* Poczekaj na zakończenie synchronizacji Gradle.
+* Skompiluj projekt na podłączone urządzenie fizyczne lub wygeneruj plik APK za pomocą opcji: `Build -> Build Bundle(s) / APK(s) -> Build APK(s)`.
+* Gotowe wersje instalacyjne (`.apk`) można również pobrać z sekcji Releases w repozytorium GitHub.
+
+## Zespół projektowy
 * Mateusz Rudziński (177151)
 * Nikola Słupska (177158)
 * Kamil Śliwa (177165)
