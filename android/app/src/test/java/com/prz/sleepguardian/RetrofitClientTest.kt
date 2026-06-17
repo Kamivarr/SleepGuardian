@@ -1,4 +1,4 @@
-package com.example.sleepguardian
+package com.prz.sleepguardian
 
 import org.junit.Assert.*
 import org.junit.Test

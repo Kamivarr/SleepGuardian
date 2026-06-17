@@ -1,4 +1,4 @@
-package com.example.sleepguardian
+package com.prz.sleepguardian
 
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit

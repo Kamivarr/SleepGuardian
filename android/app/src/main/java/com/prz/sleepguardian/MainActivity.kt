@@ -1,4 +1,4 @@
-package com.example.sleepguardian
+package com.prz.sleepguardian
 
 import android.app.TimePickerDialog
 import android.content.BroadcastReceiver
@@ -44,7 +44,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.launch
-import java.util.Calendar
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {

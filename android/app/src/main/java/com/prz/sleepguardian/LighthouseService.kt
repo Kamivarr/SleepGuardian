@@ -1,67 +1,100 @@
-package com.example.sleepguardian
+package com.prz.sleepguardian
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.graphics.Color
-import android.graphics.PixelFormat
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
+import android.hardware.camera2.CameraManager
 import android.os.Build
 import android.os.CountDownTimer
 import android.os.IBinder
-import android.view.Gravity
-import android.view.ViewGroup
-import android.view.WindowManager
-import android.widget.Button
-import android.widget.LinearLayout
-import android.widget.TextView
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
- * Foreground service responsible for rendering the system-level overlay (Curtain).
- * Forces users to surrender via "Poddaję się" to regain device control, resulting in an immediate session abort.
+ * Foreground service managing the stroboscopic flashlight penalty.
+ * Allows user to surrender via the notification tray, applying a penalty and ending the session.
  */
-class CurtainService : Service() {
+class LighthouseService : Service() {
 
-    private lateinit var windowManager: WindowManager
-    private var overlayView: LinearLayout? = null
+    private lateinit var cameraManager: CameraManager
+    private var cameraId: String? = null
+
+    private var isFlashing = false
+    private var flashThread: Thread? = null
     private var screenStateReceiver: BroadcastReceiver? = null
     private var graceTimer: CountDownTimer? = null
 
     private val gracePeriodMs: Long = 120000
-    private var isOverlayShowing = false
+
+    companion object {
+        const val ACTION_ABORT_SESSION = "com.example.sleepguardian.ABORT_LIGHTHOUSE"
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_ABORT_SESSION) {
+            abortSessionWithNegativeOpinion("Latarnia Morska (Poddanie się)")
+            return START_NOT_STICKY
+        }
+        return START_STICKY
+    }
+
     override fun onCreate() {
         super.onCreate()
-        windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        initializeCamera()
         initializeForegroundService()
         registerScreenStateReceiver()
         startGraceTimer()
     }
 
+    private fun initializeCamera() {
+        cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
+        try {
+            cameraId = cameraManager.cameraIdList.firstOrNull { id ->
+                cameraManager.getCameraCharacteristics(id)
+                    .get(android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     private fun initializeForegroundService() {
-        val channelId = "sleep_guardian_overlay_channel"
+        val channelId = "sleep_guardian_light_channel"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(channelId, "SleepGuardian Service", NotificationManager.IMPORTANCE_LOW)
+            val channel = NotificationChannel(
+                channelId,
+                "SleepGuardian Flashlight",
+                NotificationManager.IMPORTANCE_LOW
+            )
             getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
         }
+
+        val abortIntent = Intent(this, LighthouseService::class.java).apply {
+            action = ACTION_ABORT_SESSION
+        }
+        val abortPendingIntent = PendingIntent.getService(
+            this, 0, abortIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
         val notification = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("SleepGuardian")
-            .setContentText("Ochrona snu aktywna")
+            .setContentTitle("Latarnia Morska jest aktywna")
+            .setContentText("Zablokuj ekran, aby zgasić.")
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setOngoing(true)
+            .addAction(android.R.drawable.ic_delete, "Poddaję się", abortPendingIntent)
             .build()
-        startForeground(1, notification)
+
+        startForeground(4, notification)
     }
 
     private fun registerScreenStateReceiver() {
@@ -71,7 +104,7 @@ class CurtainService : Service() {
                     Intent.ACTION_SCREEN_ON -> startGraceTimer()
                     Intent.ACTION_SCREEN_OFF -> {
                         cancelGraceTimer()
-                        removeOverlay()
+                        stopFlashing()
                     }
                 }
             }
@@ -84,11 +117,13 @@ class CurtainService : Service() {
     }
 
     private fun startGraceTimer() {
-        if (isOverlayShowing) return
+        if (isFlashing) return
         graceTimer?.cancel()
         graceTimer = object : CountDownTimer(gracePeriodMs, 1000) {
             override fun onTick(millisUntilFinished: Long) {}
-            override fun onFinish() { renderOverlay() }
+            override fun onFinish() {
+                startFlashing()
+            }
         }.start()
     }
 
@@ -97,72 +132,41 @@ class CurtainService : Service() {
         graceTimer = null
     }
 
-    private fun renderOverlay() {
-        if (isOverlayShowing) return
-        isOverlayShowing = true
+    private fun startFlashing() {
+        if (isFlashing || cameraId == null) return
 
-        val layoutParams = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.CENTER }
-
-        overlayView = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setBackgroundColor(Color.parseColor("#F2080808"))
-            setPadding(64, 64, 64, 64)
-            this.layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-        }
-
-        val titleText = TextView(this).apply {
-            text = "ZASŁONA SNU"
-            setTextColor(Color.WHITE)
-            textSize = 28f
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            gravity = Gravity.CENTER
-        }
-
-        val subtitleText = TextView(this).apply {
-            text = "Twój ekran został zablokowany, aby chronić Twój sen.\nOdkładając telefon, dbasz o swój streak."
-            setTextColor(Color.parseColor("#B3FFFFFF"))
-            textSize = 16f
-            typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
-            gravity = Gravity.CENTER
-            setPadding(0, 32, 0, 128)
-        }
-
-        val unlockButton = Button(this).apply {
-            text = "PODDAJĘ SIĘ, JESTEM MIĘKKI JAK MIĘCZAK"
-            setTextColor(Color.parseColor("#FF5252"))
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = 50f
-                setStroke(3, Color.parseColor("#FF5252"))
-                setColor(Color.parseColor("#1AFFFFFF"))
+        isFlashing = true
+        flashThread = Thread {
+            var torchState = false
+            while (isFlashing) {
+                try {
+                    torchState = !torchState
+                    cameraManager.setTorchMode(cameraId!!, torchState)
+                    Thread.sleep(500)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    break
+                }
             }
-            setPadding(64, 32, 64, 32)
-            setOnClickListener {
-                abortSessionWithNegativeOpinion("Narastająca Kurtyna (Poddanie się)")
-            }
+            ensureTorchOff()
         }
-
-        overlayView?.addView(titleText)
-        overlayView?.addView(subtitleText)
-        overlayView?.addView(unlockButton)
-        windowManager.addView(overlayView, layoutParams)
+        flashThread?.start()
     }
 
-    private fun removeOverlay() {
-        if (!isOverlayShowing) return
-        isOverlayShowing = false
-        overlayView?.let {
-            windowManager.removeView(it)
-            overlayView = null
+    private fun stopFlashing() {
+        isFlashing = false
+        flashThread?.join(1000)
+        flashThread = null
+        ensureTorchOff()
+    }
+
+    private fun ensureTorchOff() {
+        cameraId?.let {
+            try {
+                cameraManager.setTorchMode(it, false)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 
@@ -208,7 +212,7 @@ class CurtainService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         cancelGraceTimer()
-        removeOverlay()
+        stopFlashing()
         screenStateReceiver?.let { unregisterReceiver(it) }
     }
 }

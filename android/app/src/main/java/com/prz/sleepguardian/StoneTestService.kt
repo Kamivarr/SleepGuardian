@@ -1,4 +1,4 @@
-package com.example.sleepguardian
+package com.prz.sleepguardian
 
 import android.app.NotificationChannel
 import android.app.NotificationManager

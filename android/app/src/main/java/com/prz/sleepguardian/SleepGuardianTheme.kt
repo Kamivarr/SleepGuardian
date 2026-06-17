@@ -1,4 +1,4 @@
-package com.example.sleepguardian
+package com.prz.sleepguardian
 
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme

@@ -1,4 +1,4 @@
-package com.example.sleepguardian.ui.theme
+package com.prz.sleepguardian.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
